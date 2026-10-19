@@ -17,7 +17,8 @@ import streamlit as st
 
 from aelib import GeigerLocator
 from locbench.evaluate import Scenario, run_trials, summarize
-from locbench.plots import plot_err_hist, plot_layout, plot_metric_vs_param
+from locbench.plots import (METRIC_LABELS, PARAM_LABELS, plot_err_hist,
+                            plot_layout, plot_metric_vs_param)
 from locbench.sweep import sweep
 from locbench.synth import coplanar_layout, random_layout, random_sources
 
@@ -30,7 +31,8 @@ st.caption("所有数据均为数值模拟：合成台阵 + 合成震源 + 模�
 # ------------------------------------------------------------- sidebar
 with st.sidebar:
     st.header("场景（合成）")
-    kind = st.radio("台阵布置", ["random-3d", "coplanar-2d (z=0)"])
+    kind_label = st.radio("台阵布置", ["三维随机布置", "共面二维布置（z=0 平面）"])
+    kind = "random-3d" if kind_label.startswith("三维") else "coplanar-2d"
     n_sensors = st.slider("传感器数", 4, 32, 8)
     size = st.slider("台阵边长 (m)", 0.1, 5.0, 1.0, 0.1)
     n_sources = st.slider("震源数", 1, 50, 10)
@@ -119,11 +121,11 @@ with tab_result:
 with tab_sweep:
     st.subheader("单参数扫描（其余参数取侧栏当前值）")
     target = st.radio("扫描对象", ["定位器参数", "场景参数（噪声/鲁棒性）"])
-    metric = st.selectbox("评估指标",
-                          ["err", "err_p95", "t0_err", "rms", "n_iter",
-                           "runtime_ms", "stderr_calibration"])
+    metric = st.selectbox("评估指标", list(METRIC_LABELS),
+                          format_func=METRIC_LABELS.get)
     if target.startswith("定位器"):
-        param = st.selectbox("参数", ["grid_size", "margin", "velocity"])
+        param = st.selectbox("参数", ["grid_size", "margin", "velocity"],
+                             format_func=PARAM_LABELS.get)
         raw = st.text_input("取值（逗号分隔）",
                             {"grid_size": "4, 8, 16, 24, 48",
                              "margin": "0.0, 0.05, 0.1, 0.2",
@@ -145,7 +147,8 @@ with tab_sweep:
         df2 = do_sweep(SCENARIO_KEY, PARAMS, param, vals)
     else:
         param = st.selectbox("场景参数",
-                             ["sigma", "outlier_p", "drop_p", "outlier_jitter"])
+                             ["sigma", "outlier_p", "drop_p", "outlier_jitter"],
+                             format_func=PARAM_LABELS.get)
         raw = st.text_input("取值（逗号分隔）",
                             {"sigma": "0, 1e-6, 2e-6, 5e-6, 1e-5",
                              "outlier_p": "0, 0.05, 0.1, 0.2",
