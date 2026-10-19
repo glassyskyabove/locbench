@@ -115,13 +115,18 @@ def test_clean_scenario_recovers_sources():
     sensors = random_layout(8, extent=(1.0, 1.0, 1.0), seed=1)
     sources = random_sources(5, sensors, seed=2)
     sc = Scenario(sensors=sensors, sources=sources, velocity=5300.0, seed=3)
-    df = run_trials(GeigerLocator(sensors, velocity=5300.0), sc)
+    # tol=1e-12 for the deep-convergence check: the 1e-6 default stops
+    # ~0.1 mm short of the optimum (us-scale early stopping by design)
+    df = run_trials(GeigerLocator(sensors, velocity=5300.0, tol=1e-12), sc)
     assert len(df) == 5
     assert df["err"].notna().all()
     assert (df["err"] < 1e-6).all()          # exact arrivals -> ~0 error
     assert df["converged"].all()
     s = summarize(df)
     assert s["failures"] == 0 and s["trials"] == 5
+    # default tol=1e-6 on the same exact-arrival data: sub-mm early stop
+    df_def = run_trials(GeigerLocator(sensors, velocity=5300.0), sc)
+    assert (df_def["err"] < 1e-3).all()
 
 
 def test_noisy_trials_error_scales():

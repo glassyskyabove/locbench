@@ -177,12 +177,13 @@ with st.sidebar:
                                help="外层迭代次数上限，两种模式共用；"
                                     "跑满且末步 RMS 改善仍大于 tol 则标记"
                                     "未收敛")
-    tol = st.number_input("收敛判据 tol (s)", 0.0, 1e-3, 1e-12, 1e-13,
+    tol = st.number_input("收敛判据 tol (s)", 0.0, 1e-3, 1e-6, 1e-7,
                           format="%.1e",
                           help="相邻两次迭代加权残差 RMS 的改善量小于 tol "
-                               "即判定收敛（1e-12 s = 1 ps，实质是\"不再"
-                               "改善\"）；0 = 关闭该判据，仅靠停滞判据或"
-                               "max_iter 终止")
+                               "即判定收敛。默认 1e-6 s（1 µs，与到时误差"
+                               "同量级）——更小的 tol 会沿弱辨识方向过度"
+                               "迭代、拟合噪声；0 = 关闭该判据，仅靠停滞"
+                               "判据或 max_iter 终止")
     damping = st.checkbox("LM 阻尼", True)
     est_v = st.checkbox("联合反演速度", False)
 
@@ -291,7 +292,7 @@ with tab_sweep:
                              "margin": "0.0, 0.05, 0.1, 0.2",
                              "velocity": "4000, 4650, 5300, 5950, 6600",
                              "max_iter": "5, 10, 20, 60, 150",
-                             "tol": "0, 1e-13, 1e-12, 1e-11, 1e-10"}[param])
+                             "tol": "0, 1e-8, 1e-7, 1e-6, 1e-5"}[param])
         vals = [float(v) for v in raw.replace(";", ",").split(",") if v.strip()]
         if param in ("grid_size", "max_iter"):
             vals = [int(v) for v in vals]
