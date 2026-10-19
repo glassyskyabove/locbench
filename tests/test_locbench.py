@@ -6,8 +6,25 @@ from aelib import GeigerLocator
 
 from locbench.evaluate import Scenario, run_trials, summarize
 from locbench.sweep import sweep
-from locbench.synth import (coplanar_layout, make_arrivals, random_layout,
-                            random_sources)
+from locbench.synth import (corners_layout, coplanar_layout, make_arrivals,
+                            random_layout, random_sources)
+
+
+def test_corners_layout_specimen_scenario():
+    """Default specimen case: 100x100x200 mm, sensors on the 8 vertices."""
+    sensors = corners_layout(size=(0.1, 0.1, 0.2))
+    assert len(sensors) == 8
+    P = np.stack(list(sensors.values()))
+    assert np.allclose(P.min(axis=0), (-0.05, -0.05, -0.10))
+    assert np.allclose(P.max(axis=0), (0.05, 0.05, 0.10))
+    sc = Scenario(sensors=sensors, sources=random_sources(5, sensors, seed=1),
+                  velocity=5300.0, sigma=1e-6, repeats=2, seed=2)
+    df = run_trials(GeigerLocator(sensors, velocity=5300.0), sc)
+    assert len(df) == 10
+    assert df["err"].notna().all()
+    assert df["err"].median() < 0.01          # ~mm at 1 us pick noise
+    rect = corners_layout(size=(0.3, 0.2))    # 2-D size -> 4 corners
+    assert len(rect) == 4 and all(len(p) == 2 for p in rect.values())
 
 
 def test_clean_scenario_recovers_sources():

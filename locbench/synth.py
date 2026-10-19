@@ -7,12 +7,26 @@ business, not the bench's.
 """
 from __future__ import annotations
 
+import itertools
 from typing import Dict, Optional, Tuple
 
 import numpy as np
 
-__all__ = ["random_layout", "coplanar_layout", "random_sources",
-           "make_arrivals"]
+__all__ = ["corners_layout", "random_layout", "coplanar_layout",
+           "random_sources", "make_arrivals"]
+
+
+def corners_layout(size=(0.1, 0.1, 0.2), center=(0.0, 0.0, 0.0)) -> Dict[int, tuple]:
+    """Sensors at the box corners -- the classic specimen monitoring setup
+    (default 100 x 100 x 200 mm with one sensor on each of the 8 vertices;
+    ``size`` is the full side length per axis).  A 2-entry ``size`` gives
+    the 4 corners of a rectangle.  Keys are 1..n."""
+    size = np.asarray(size, dtype=float)
+    dim = size.size
+    center = np.asarray(center, dtype=float)[:dim]
+    pts = [center + np.array(s) * size
+           for s in itertools.product((-0.5, 0.5), repeat=dim)]
+    return {i + 1: tuple(p) for i, p in enumerate(pts)}
 
 
 def _rng(rng, seed):

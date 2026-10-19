@@ -23,7 +23,7 @@ pip install -e "E:\GitHub_codes\locbench[app]"   # 可视化界面（streamlit�
 locbench                                  # 或 streamlit run locbench/app.py
 ```
 
-侧栏配置合成场景（台阵布置/传感器数/台阵尺寸/噪声 σ/粗差/丢道/真实波速）
+侧栏配置合成场景（默认 100×100×200 mm 试样、8 顶点传感器，尺寸三向可调；亦可换随机/共面布置；噪声 σ、粗差、丢道、真实波速）
 与定位器参数（grid_size/margin/LM 阻尼/联合反演速度/采用波速），两个页签：
 
 - **场景与结果**：定位误差中位/p95、收敛率、残差 rms、迭代数、耗时；

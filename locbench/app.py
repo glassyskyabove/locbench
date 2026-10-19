@@ -21,7 +21,8 @@ from locbench.plots import (METRIC_LABELS, PARAM_LABELS, SUMMARY_LABELS,
                             TRIAL_LABELS, plot_err_hist, plot_layout,
                             plot_metric_vs_param)
 from locbench.sweep import sweep
-from locbench.synth import coplanar_layout, random_layout, random_sources
+from locbench.synth import (corners_layout, coplanar_layout, random_layout,
+                            random_sources)
 
 #: 表格列的中文显示名（仅显示层映射，DataFrame 列名/缓存/逻辑不变）
 DISPLAY_LABELS = {**TRIAL_LABELS, **METRIC_LABELS, **PARAM_LABELS}
@@ -43,10 +44,17 @@ st.caption("所有数据均为数值模拟：合成台阵 + 合成震源 + 模�
 # ------------------------------------------------------------- sidebar
 with st.sidebar:
     st.header("场景（合成）")
-    kind_label = st.radio("台阵布置", ["三维随机布置", "共面二维布置（z=0 平面）"])
-    kind = "random-3d" if kind_label.startswith("三维") else "coplanar-2d"
-    n_sensors = st.slider("传感器数", 4, 32, 8)
-    size = st.slider("台阵边长 (m)", 0.1, 5.0, 1.0, 0.1)
+    kind_label = st.radio(
+        "台阵布置",
+        ["试样顶点（8 传感器）", "三维随机布置", "共面二维布置（z=0 平面）"])
+    kind = ("corners" if kind_label.startswith("试样")
+            else "random-3d" if kind_label.startswith("三维随机")
+            else "coplanar-2d")
+    lx_mm = st.number_input("试样尺寸 x (mm)", 10.0, 2000.0, 100.0, 10.0)
+    ly_mm = st.number_input("试样尺寸 y (mm)", 10.0, 2000.0, 100.0, 10.0)
+    lz_mm = st.number_input("试样尺寸 z (mm)", 10.0, 2000.0, 200.0, 10.0)
+    lx, ly, lz = lx_mm * 1e-3, ly_mm * 1e-3, lz_mm * 1e-3     # -> m
+    n_sensors = 8 if kind == "corners" else st.slider("传感器数", 4, 32, 8)
     n_sources = st.slider("震源数", 1, 50, 10)
     repeats = st.slider("每源噪声重复", 1, 20, 3)
     seed = st.number_input("随机种子", 0, 1_000_000, 0)
@@ -65,21 +73,27 @@ with st.sidebar:
     damping = st.checkbox("LM 阻尼", True)
     est_v = st.checkbox("联合反演速度", False)
 
-SCENARIO_KEY = ("scenario", kind, n_sensors, size, n_sources, repeats, seed,
-                sigma_us * 1e-6, outlier_p, outlier_us * 1e-6, drop_p, v_true)
+SCENARIO_KEY = ("scenario", kind, n_sensors, lx, ly, lz, n_sources, repeats,
+                seed, sigma_us * 1e-6, outlier_p, outlier_us * 1e-6, drop_p,
+                v_true)
 PARAMS = dict(velocity=v_used, grid_size=grid_size, margin=margin,
               damping=damping, estimate_velocity=est_v)
 
 
 @st.cache_data(show_spinner="生成合成场景…")
 def make_scenario(scenario_key):
-    (_, kind, n_sensors, size, n_sources, repeats, seed,
+    (_, kind, n_sensors, lx, ly, lz, n_sources, repeats, seed,
      sigma, outlier_p, outlier_jitter, drop_p, v_true) = scenario_key
-    if kind.startswith("random-3d"):
-        sensors = random_layout(n_sensors, extent=(size, size, size),
+    if kind == "corners":
+        sensors = corners_layout(size=(lx, ly, lz))
+    elif kind == "random-3d":
+        sensors = random_layout(n_sensors, extent=(lx, ly, lz),
+                                min_spacing=0.05 * min(lx, ly, lz),
                                 seed=seed)
     else:
-        sensors = coplanar_layout(n_sensors, extent=(size, size), seed=seed)
+        sensors = coplanar_layout(n_sensors, extent=(lx, ly),
+                                  min_spacing=0.05 * min(lx, ly),
+                                  seed=seed)
     sources = random_sources(n_sources, sensors, seed=seed + 1)
     return Scenario(sensors=sensors, sources=sources, velocity=v_true,
                     sigma=sigma, outlier_p=outlier_p,
