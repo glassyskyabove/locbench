@@ -7,6 +7,7 @@ pick noise, outliers and channel dropout.  Run with
 """
 from __future__ import annotations
 
+import itertools
 import os
 import sys
 from dataclasses import replace
@@ -21,8 +22,8 @@ from locbench.plots import (DIST_ROWS, METRIC_LABELS, PARAM_LABELS,
                             SUMMARY_LABELS, display_table, plot_err_hist,
                             plot_layout, plot_metric_vs_param, unit_labels)
 from locbench.sweep import sweep
-from locbench.synth import (corners_layout, grid_sources, parse_layout,
-                            random_layout, random_sources)
+from locbench.synth import (grid_sources, parse_layout, random_int_layout,
+                            random_sources)
 
 st.set_page_config(page_title="locbench", page_icon="\U0001F3AF",
                    layout="wide")
@@ -47,28 +48,53 @@ with st.sidebar:
     kind = f"{'3d' if is_3d else '2d'}-" + {"顶点": "corners",
                                             "随机": "random",
                                             "自定义": "custom"}[place_label]
-    custom_key = None
+    n_wanted = st.slider("传感器数", 4, 32, 8) if place_label == "随机" else 0
+
+    def _fmt_layout(m_pts):
+        """米制坐标 -> 文本（按显示单位换算，整数值不带小数点）。"""
+        lines = []
+        for p in m_pts:
+            cells = []
+            for v in p:
+                d = v * factor
+                cells.append(str(int(round(d))) if abs(d - round(d)) < 1e-9
+                             else f"{d:.6g}")
+            lines.append(",".join(cells))
+        return "\n".join(lines)
+
     if place_label == "顶点":
-        n_sensors = 8 if is_3d else 4
+        ext_mm = (lx_mm, ly_mm, lz_mm) if is_3d else (lx_mm, ly_mm)
+        st.session_state["layout_text"] = _fmt_layout(
+            tuple(v * 1e-3 for v in p)
+            for p in itertools.product(*[(0.0, s) for s in ext_mm]))
     elif place_label == "随机":
-        n_sensors = st.slider("传感器数", 4, 32, 8)
-    else:
-        default_txt = ("0,0,0\n100,0,0\n0,100,0\n100,100,0\n50,50,100"
-                       if is_3d else "0,0\n100,0\n0,100\n100,100")
-        custom_txt = st.text_area(
-            "传感器坐标（每行一个，逗号分隔）", default_txt,
-            key=f"custom_layout_{is_3d}", height=140,
-            help=f"每行一个传感器：{'x,y,z' if is_3d else 'x,y'}，逗号分隔；"
-                 f"单位与显示单位一致（当前 {disp_unit}）；支持 # 注释行")
-        try:
-            custom = parse_layout(custom_txt,
-                                  n_components=3 if is_3d else 2,
-                                  to_m=1.0 / factor)
-        except ValueError as exc:
-            st.error(f"传感器坐标有误：{exc}")
-            st.stop()
-        n_sensors = len(custom)
-        custom_key = tuple(sorted(custom.items()))
+        ext_mm = ((int(round(lx_mm)), int(round(ly_mm)), int(round(lz_mm)))
+                  if is_3d else (int(round(lx_mm)), int(round(ly_mm))))
+        # 随机种子控件在侧栏更下方：先读 session_state（首跑用默认 0）
+        seed_gen = st.session_state.get("seed", 0)
+        rand = random_int_layout(n_wanted, extent=ext_mm, seed=seed_gen)
+        st.session_state["layout_text"] = _fmt_layout(
+            tuple(v * 1e-3 for v in p) for p in rand.values())
+    elif "layout_text" not in st.session_state:
+        ex = ([(0, 0, 0), (100, 0, 0), (0, 100, 0), (100, 100, 0), (50, 50, 100)]
+              if is_3d else [(0, 0), (100, 0), (0, 100), (100, 100)])
+        st.session_state["layout_text"] = _fmt_layout(
+            tuple(v * 1e-3 for v in p) for p in ex)
+
+    custom_txt = st.text_area(
+        "传感器坐标（每行一个，逗号分隔）", key="layout_text", height=140,
+        disabled=place_label != "自定义",
+        help=f"每行一个传感器：{'x,y,z' if is_3d else 'x,y'}；单位与显示单位"
+             f"一致（当前 {disp_unit}）；支持 # 注释行。顶点/随机模式显示生成"
+             f"的坐标（不可编辑），切到\"自定义\"可在此基础上修改")
+    try:
+        custom = parse_layout(custom_txt, n_components=3 if is_3d else 2,
+                              to_m=1.0 / factor)
+    except ValueError as exc:
+        st.error(f"传感器坐标有误：{exc}")
+        st.stop()
+    n_sensors = len(custom)
+    custom_key = tuple(sorted(custom.items()))
     source_mode = st.radio("震源布置", ["随机震源", "网格震源（xyz 间距）"])
     if source_mode.startswith("随机"):
         n_sources = st.slider("震源数", 1, 50, 10)
@@ -82,7 +108,7 @@ with st.sidebar:
                    f"{counts[0] * counts[1] * counts[2]} 个震源"
                    f"（格心布源，不含边界）")
     repeats = st.slider("震源重复次数", 1, 20, 3)
-    seed = st.number_input("随机种子", 0, 1_000_000, 0)
+    seed = st.number_input("随机种子", 0, 1_000_000, key="seed")
     st.subheader("到时误差模拟")
     sigma_us = st.slider("拾取噪声 σ (µs)", 0.0, 50.0, 1.0, 0.5)
     outlier_p = st.slider("粗差比例", 0.0, 0.3, 0.0, 0.01)
@@ -122,19 +148,7 @@ def make_scenario(scenario_key):
     (_, kind, n_sensors, lx, ly, lz, custom_key, source_mode, n_sources,
      spacing, repeats, seed, sigma, outlier_p, outlier_jitter, drop_p,
      v_true) = scenario_key
-    dim3, place = kind.split("-", 1)
-    if place == "corners":
-        sensors = (corners_layout(size=(lx, ly, lz)) if dim3 == "3d"
-                   else corners_layout(size=(lx, ly)))
-    elif place == "random":
-        sensors = (random_layout(n_sensors, extent=(lx, ly, lz),
-                                 min_spacing=0.05 * min(lx, ly, lz),
-                                 seed=seed) if dim3 == "3d" else
-                   random_layout(n_sensors, extent=(lx, ly),
-                                 min_spacing=0.05 * min(lx, ly),
-                                 seed=seed))
-    else:
-        sensors = dict(custom_key)
+    sensors = dict(custom_key)          # the text box is the single source
     if source_mode.startswith("网格"):
         sources = grid_sources(sensors, spacing=spacing)
     else:
@@ -157,7 +171,11 @@ def run_trials_cached(scenario_key, params):
 tab_result, tab_sweep = st.tabs(["场景与结果", "参数敏感性"])
 
 with tab_result:
-    df = run_trials_cached(SCENARIO_KEY, PARAMS)
+    try:
+        df = run_trials_cached(SCENARIO_KEY, PARAMS)
+    except Exception as exc:            # e.g. degenerate (collinear) layout
+        st.error(f"定位无法进行：{exc}")
+        st.stop()
     s = summarize(df)
     c = st.columns(6)
     c[0].metric(f"定位误差中位 ({disp_unit})", f"{s.err_median * factor:.2f}")
@@ -214,8 +232,6 @@ with tab_sweep:
             return sweep(GeigerLocator, {param: vals}, sc,
                          locator_kwargs=locator_kwargs(scenario_key, params,
                                                        exclude=param))
-
-        df2 = do_sweep(SCENARIO_KEY, PARAMS, param, vals)
     else:
         param = st.selectbox("场景参数",
                              ["sigma", "outlier_p", "drop_p", "outlier_jitter"],
@@ -239,10 +255,15 @@ with tab_sweep:
                 frames.append(d)
             return pd.concat(frames, ignore_index=True)
 
-        df2 = do_scenario_sweep(SCENARIO_KEY, PARAMS, param, vals)
-
     agg_map = {"err_p95": ("err", lambda x: x.quantile(0.95)),
                "stderr_calibration": ("err", "median")}
+    try:
+        df2 = (do_sweep(SCENARIO_KEY, PARAMS, param, vals)
+               if target.startswith("定位器")
+               else do_scenario_sweep(SCENARIO_KEY, PARAMS, param, vals))
+    except Exception as exc:
+        st.error(f"扫描无法进行：{exc}")
+        st.stop()
     src_col, agg = agg_map.get(metric, (metric, "median"))
     gcol = "err" if metric == "stderr_calibration" else src_col
     if metric == "stderr_calibration":

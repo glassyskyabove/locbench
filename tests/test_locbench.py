@@ -7,8 +7,28 @@ from aelib import GeigerLocator
 from locbench.evaluate import Scenario, run_trials, summarize
 from locbench.sweep import sweep
 from locbench.synth import (corners_layout, coplanar_layout, grid_sources,
-                            make_arrivals, parse_layout, random_layout,
-                            random_sources)
+                            make_arrivals, parse_layout, random_int_layout,
+                            random_layout, random_sources)
+
+
+def test_random_int_layout_mm_grid():
+    """Random integer layouts: all coordinates integers inside the extent,
+    spacing floor respected, deterministic per seed, 2-D extents work."""
+    lay = random_int_layout(8, extent=(100, 100, 200), seed=7)
+    assert len(lay) == 8
+    for p in lay.values():
+        assert len(p) == 3
+        assert all(isinstance(v, int) for v in p)
+        assert all(0 <= v <= e for v, e in zip(p, (100, 100, 200)))
+    pts = np.asarray(list(lay.values()), dtype=float)
+    from itertools import combinations
+    assert all(np.linalg.norm(a - b) >= 5.0            # floor: 5% of 100mm
+               for a, b in combinations(pts, 2))
+    lay2 = random_int_layout(8, extent=(100, 100, 200), seed=7)
+    assert lay == lay2                                  # deterministic
+    lay3 = random_int_layout(6, extent=(80, 60), seed=1)
+    assert all(len(p) == 2 and all(isinstance(v, int) and 0 <= v <= 80
+                                   for v in p[:1]) for p in lay3.values())
 
 
 def test_parse_layout_custom_sensors():

@@ -12,8 +12,35 @@ from typing import Dict, Optional, Tuple
 
 import numpy as np
 
-__all__ = ["corners_layout", "random_layout", "coplanar_layout",
-           "random_sources", "grid_sources", "parse_layout", "make_arrivals"]
+__all__ = ["corners_layout", "random_layout", "random_int_layout",
+           "coplanar_layout", "random_sources", "grid_sources",
+           "parse_layout", "make_arrivals"]
+
+
+def random_int_layout(n_sensors: int, extent=(100, 100, 200),
+                      min_spacing=None, seed=None, rng=None) -> Dict[int, tuple]:
+    """Uniform random INTEGER sensor coordinates on the lattice
+    ``[0, extent]`` per axis (extent in integer units -- naturally a
+    millimetre grid when the sizes are in mm).  ``min_spacing`` (same
+    integer unit, default 5% of the smallest extent, at least 1) keeps
+    points apart via rejection sampling, relaxing if the lattice is too
+    crowded.  Keys are 1..n.  Deterministic given ``seed``."""
+    rng = _rng(rng, seed)
+    extent = np.asarray(extent, dtype=int)
+    dim = extent.size
+    if min_spacing is None:
+        min_spacing = max(1, int(round(0.05 * extent.min())))
+    pts: list = []
+    tries = 0
+    while len(pts) < n_sensors:
+        p = rng.integers(0, extent + 1)
+        if all(np.linalg.norm(p - np.asarray(q)) >= min_spacing for q in pts):
+            pts.append(p)
+        tries += 1
+        if tries > 20_000:
+            min_spacing = max(1, min_spacing // 2)
+            tries = 0
+    return {i + 1: tuple(int(v) for v in p) for i, p in enumerate(pts)}
 
 
 def parse_layout(text: str, n_components: int = 3,
