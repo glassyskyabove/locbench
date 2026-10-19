@@ -33,6 +33,8 @@ class Scenario:
     sigma: float = 0.0             # pick noise, s
     drop_p: float = 0.0            # per-channel drop probability, judged
                                     # independently for every event
+    fs: float = 0.0                # sampling rate Hz; >0 quantizes arrival
+                                    # times to 1/fs (instrument resolution)
     seed: int = 0
     repeats: int = 1
 
@@ -55,7 +57,8 @@ def run_trials(locator, scenario: Scenario) -> pd.DataFrame:
             t0_true = float(rng.uniform(0.0, 1.0))
             arrivals, _ = make_arrivals(
                 scenario.sensors, src, scenario.velocity, t0=t0_true,
-                sigma=scenario.sigma, drop_p=scenario.drop_p, rng=rng)
+                sigma=scenario.sigma, drop_p=scenario.drop_p,
+                fs=scenario.fs, rng=rng)
             row = dict(source=i, repeat=rep, n_picks=len(arrivals))
             t_start = time.perf_counter()
             try:

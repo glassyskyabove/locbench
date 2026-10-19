@@ -169,6 +169,26 @@ def test_make_arrivals_degradation_model():
         assert arr[ch] == exact[ch]
 
 
+def test_arrival_quantization_by_sampling_rate():
+    """fs quantizes arrival times to the sampling period (10 MHz -> 0.1 us
+    ticks); fs=0 keeps them continuous."""
+    sensors = random_layout(6, extent=(1.0, 1.0, 1.0), seed=21)
+    src = np.array([0.1, -0.2, 0.3])
+    arr, _ = make_arrivals(sensors, src, velocity=5000.0, t0=1.0,
+                           fs=10e6, seed=22)
+    T = 1.0 / 10e6
+    for t in arr.values():                  # every pick sits on the clock
+        assert abs(t / T - round(t / T)) < 1e-6
+    exact, _ = make_arrivals(sensors, src, velocity=5000.0, t0=1.0)
+    assert max(abs(arr[c] - exact[c]) for c in arr) <= T / 2 + 1e-12
+    cont, _ = make_arrivals(sensors, src, velocity=5000.0, t0=1.0, fs=0.0)
+    assert cont == exact                    # fs=0 -> continuous, exact
+    sc = Scenario(sensors=sensors, sources=src[None, :], velocity=5000.0,
+                  fs=10e6, seed=23)         # flows through run_trials
+    df = run_trials(GeigerLocator(sensors, velocity=5000.0), sc)
+    assert df["err"].notna().all() and df["err"].iloc[0] < 0.02
+
+
 def test_sweep_runs_and_caches(tmp_path):
     sensors = random_layout(8, seed=1)
     sources = random_sources(4, sensors, seed=2)

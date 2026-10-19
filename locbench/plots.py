@@ -58,6 +58,7 @@ PARAM_LABELS = {
     "margin": "margin（包围盒外扩比例）",
     "velocity": "波速 (m/s)",
     "sigma": "拾取噪声 σ (s)",
+    "fs": "采样率 (Hz)",
     "drop_p": "丢道概率",
 }
 #: 汇总统计（summarize 输出）的中文行名

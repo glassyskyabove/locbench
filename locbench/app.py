@@ -124,6 +124,10 @@ with st.sidebar:
     seed = st.number_input("随机种子", 0, 1_000_000, key="seed")
     st.subheader("到时误差模拟")
     sigma_us = st.slider("拾取噪声 σ (µs)", 0.0, 50.0, 1.0, 0.5)
+    fs_mhz = st.number_input("采样率 (MHz)", 0.0, 200.0, 10.0, 1.0,
+                             help="到时按采样周期 1/fs 量化（模拟仪器时间"
+                                  "分辨率，如 10 MHz → 0.1 µs）；0 = 连续"
+                                  "不量化")
     drop_p = st.slider("丢道概率", 0.0, 0.5, 0.1, 0.01,
                        help="每个事件对每个通道独立抽一个 [0,1) 均匀随机数，"
                             "小于该值则此通道在此事件中被丢弃")
@@ -139,7 +143,7 @@ with st.sidebar:
 SCENARIO_KEY = ("scenario", kind, n_sensors, lx, ly, lz, custom_key,
                 source_mode, n_sources,
                 tuple(d * 1e-3 for d in grid_spacing_mm), repeats,
-                seed, sigma_us * 1e-6, drop_p, v_true)
+                seed, sigma_us * 1e-6, drop_p, fs_mhz * 1e6, v_true)
 PARAMS = dict(velocity=v_used, grid_size=grid_size, margin=margin,
               damping=damping, estimate_velocity=est_v)
 
@@ -158,7 +162,7 @@ def locator_kwargs(scenario_key, params, exclude=None):
 @st.cache_data(show_spinner="生成合成场景…")
 def make_scenario(scenario_key):
     (_, kind, n_sensors, lx, ly, lz, custom_key, source_mode, n_sources,
-     spacing, repeats, seed, sigma, drop_p, v_true) = scenario_key
+     spacing, repeats, seed, sigma, drop_p, fs, v_true) = scenario_key
     sensors = dict(custom_key)          # the text box is the single source
     if source_mode.startswith("网格"):
         dim = len(next(iter(sensors.values())))
@@ -166,7 +170,7 @@ def make_scenario(scenario_key):
     else:
         sources = random_sources(n_sources, sensors, seed=seed + 1)
     return Scenario(sensors=sensors, sources=sources, velocity=v_true,
-                    sigma=sigma, drop_p=drop_p,
+                    sigma=sigma, drop_p=drop_p, fs=fs,
                     seed=seed + 2, repeats=repeats)
 
 
@@ -244,10 +248,11 @@ with tab_sweep:
                          locator_kwargs=locator_kwargs(scenario_key, params,
                                                        exclude=param))
     else:
-        param = st.selectbox("场景参数", ["sigma", "drop_p"],
+        param = st.selectbox("场景参数", ["sigma", "fs", "drop_p"],
                              format_func=PARAM_LABELS.get)
         raw = st.text_input("取值（逗号分隔）",
                             {"sigma": "0, 1e-6, 2e-6, 5e-6, 1e-5",
+                             "fs": "0, 2e6, 5e6, 1e7, 4e7",
                              "drop_p": "0, 0.1, 0.2, 0.3"}[param])
         vals = [float(v) for v in raw.replace(";", ",").split(",") if v.strip()]
 

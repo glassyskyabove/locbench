@@ -167,12 +167,16 @@ def random_sources(n: int, sensors: dict, margin: float = 0.0,
 
 
 def make_arrivals(sensors: dict, source, velocity: float, t0: float = 0.0,
-                  sigma: float = 0.0, drop_p: float = 0.0,
+                  sigma: float = 0.0, drop_p: float = 0.0, fs: float = 0.0,
                   seed=None, rng=None) -> Tuple[dict, dict]:
     """Exact arrivals ``t_i = t0 + |s_i - x| / v`` plus simulated pick
     errors.
 
     - ``sigma``: Gaussian picking noise per pick (s)
+    - ``fs``: sampling rate (Hz) -- when > 0 the arrival times are
+      quantized to the sampling period 1/fs AFTER the Gaussian noise,
+      modelling the instrument's time resolution (e.g. 10 MHz -> 0.1 us
+      ticks); ``fs = 0`` keeps the times continuous
     - ``drop_p``: per-channel drop probability -- each channel draws an
       independent uniform [0,1) random number per call (event) and is
       dropped when it falls below ``drop_p``
@@ -186,6 +190,8 @@ def make_arrivals(sensors: dict, source, velocity: float, t0: float = 0.0,
     t = t0 + d / velocity
     if sigma:
         t = t + rng.normal(0.0, sigma, t.size)
+    if fs:
+        t = np.round(t * fs) / fs          # sample-clock quantization
     keep = rng.random(t.size) >= drop_p
     arrivals = {c: float(ti) for c, ti, k in zip(chs, t, keep) if k}
     info = {"dropped": [c for c, k in zip(chs, keep) if not k]}
