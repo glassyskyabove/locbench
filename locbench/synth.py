@@ -13,7 +13,34 @@ from typing import Dict, Optional, Tuple
 import numpy as np
 
 __all__ = ["corners_layout", "random_layout", "coplanar_layout",
-           "random_sources", "make_arrivals"]
+           "random_sources", "grid_sources", "make_arrivals"]
+
+
+def grid_sources(sensors: dict, spacing, interior: bool = True) -> np.ndarray:
+    """Regular grid of source points over the sensors' bounding box.
+
+    ``spacing`` is the target cell size (one value for all axes or a
+    per-axis sequence); cells per axis = ``round(span / spacing)`` (>= 1).
+    ``interior=True`` (default) takes cell CENTRES -- strictly inside the
+    box, so a grid point never coincides with a corner sensor;
+    ``interior=False`` includes the faces (``n+1`` points per axis).
+    Constant axes (coplanar layout) give a single layer.  Returns
+    ``(n_points, dim)``; deterministic (no seed).
+    """
+    P = np.stack([np.asarray(p, dtype=float) for p in sensors.values()])
+    lo, hi = P.min(axis=0), P.max(axis=0)
+    span = hi - lo
+    dim = P.shape[1]
+    sp = np.broadcast_to(np.asarray(spacing, dtype=float), (dim,))
+    n = np.maximum(1, np.round(span / sp).astype(int))
+    axes = []
+    for i in range(dim):
+        if interior:
+            axes.append(lo[i] + (np.arange(n[i]) + 0.5) * span[i] / n[i])
+        else:
+            axes.append(np.linspace(lo[i], hi[i], n[i] + 1))
+    return np.stack(np.meshgrid(*axes, indexing="ij"),
+                    axis=-1).reshape(-1, dim)
 
 
 def corners_layout(size=(0.1, 0.1, 0.2), center=(0.0, 0.0, 0.0)) -> Dict[int, tuple]:

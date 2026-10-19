@@ -6,8 +6,30 @@ from aelib import GeigerLocator
 
 from locbench.evaluate import Scenario, run_trials, summarize
 from locbench.sweep import sweep
-from locbench.synth import (corners_layout, coplanar_layout, make_arrivals,
-                            random_layout, random_sources)
+from locbench.synth import (corners_layout, coplanar_layout, grid_sources,
+                            make_arrivals, random_layout, random_sources)
+
+
+def test_grid_sources_regular_coverage():
+    """Grid sources: cell-centre grid over the sensor bounding box, never
+    on the boundary; interior=False adds the faces; constant axis (coplanar)
+    collapses to one layer."""
+    sensors = corners_layout(size=(0.1, 0.1, 0.2))
+    g = grid_sources(sensors, spacing=0.025)          # 100/25=4, 200/25=8
+    assert g.shape == (4 * 4 * 8, 3)
+    P = np.stack(list(sensors.values()))
+    assert (g > P.min(axis=0)).all() and (g < P.max(axis=0)).all()
+    g2 = grid_sources(sensors, spacing=0.1, interior=False)   # 2x2x3
+    assert g2.shape == (2 * 2 * 3, 3)
+    corners = {tuple(np.round(p, 9)) for p in P}
+    assert corners <= {tuple(np.round(p, 9)) for p in g2}
+    s2 = coplanar_layout(6, extent=(0.2, 0.1), seed=1)
+    g3 = grid_sources(s2, spacing=0.05)
+    assert g3.shape[1] == 3 and np.allclose(g3[:, 2], 0.0)
+    sc = Scenario(sensors=sensors, sources=g[::21], velocity=5300.0,
+                  sigma=1e-6, seed=1)
+    df = run_trials(GeigerLocator(sensors, velocity=5300.0), sc)
+    assert df["err"].notna().all() and df["err"].median() < 0.01
 
 
 def test_corners_layout_specimen_scenario():
