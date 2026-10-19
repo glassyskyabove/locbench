@@ -38,12 +38,12 @@ with st.sidebar:
     st.header("场景（合成）")
     dim_label = st.radio("维度", ["三维", "二维"])
     is_3d = dim_label == "三维"
-    place_label = st.radio("传感器布置", ["顶点", "随机", "自定义"])
     lx_mm = st.number_input("试样尺寸 x (mm)", 10.0, 2000.0, 100.0, 10.0)
     ly_mm = st.number_input("试样尺寸 y (mm)", 10.0, 2000.0, 100.0, 10.0)
     lz_mm = (st.number_input("试样尺寸 z (mm)", 10.0, 2000.0, 200.0, 10.0)
              if is_3d else 0.0)
     lx, ly, lz = lx_mm * 1e-3, ly_mm * 1e-3, lz_mm * 1e-3     # -> m
+    place_label = st.radio("传感器布置", ["顶点", "随机", "自定义"])
     kind = f"{'3d' if is_3d else '2d'}-" + {"顶点": "corners",
                                             "随机": "random",
                                             "自定义": "custom"}[place_label]
@@ -81,7 +81,7 @@ with st.sidebar:
         st.caption(f"格数 ≈ {'×'.join(map(str, counts))} = "
                    f"{counts[0] * counts[1] * counts[2]} 个震源"
                    f"（格心布源，不含边界）")
-    repeats = st.slider("每源噪声重复", 1, 20, 3)
+    repeats = st.slider("震源重复次数", 1, 20, 3)
     seed = st.number_input("随机种子", 0, 1_000_000, 0)
     st.subheader("到时误差模拟")
     sigma_us = st.slider("拾取噪声 σ (µs)", 0.0, 50.0, 1.0, 0.5)
