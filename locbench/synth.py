@@ -96,16 +96,18 @@ def grid_sources(sensors: dict, spacing, interior: bool = True) -> np.ndarray:
                     axis=-1).reshape(-1, dim)
 
 
-def corners_layout(size=(0.1, 0.1, 0.2), center=(0.0, 0.0, 0.0)) -> Dict[int, tuple]:
+def corners_layout(size=(0.1, 0.1, 0.2), origin=(0.0, 0.0, 0.0)) -> Dict[int, tuple]:
     """Sensors at the box corners -- the classic specimen monitoring setup
     (default 100 x 100 x 200 mm with one sensor on each of the 8 vertices;
-    ``size`` is the full side length per axis).  A 2-entry ``size`` gives
-    the 4 corners of a rectangle.  Keys are 1..n."""
+    ``size`` is the full side length per axis).  The box spans
+    ``[origin, origin + size]`` per axis, so the default puts the whole
+    specimen in the all-positive octant.  A 2-entry ``size`` gives the 4
+    corners of a rectangle.  Keys are 1..n."""
     size = np.asarray(size, dtype=float)
     dim = size.size
-    center = np.asarray(center, dtype=float)[:dim]
-    pts = [center + np.array(s) * size
-           for s in itertools.product((-0.5, 0.5), repeat=dim)]
+    origin = np.asarray(origin, dtype=float)[:dim]
+    pts = [origin + np.array(s) * size
+           for s in itertools.product((0.0, 1.0), repeat=dim)]
     return {i + 1: tuple(p) for i, p in enumerate(pts)}
 
 

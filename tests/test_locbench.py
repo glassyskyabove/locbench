@@ -93,12 +93,14 @@ def test_grid_sources_regular_coverage():
 
 
 def test_corners_layout_specimen_scenario():
-    """Default specimen case: 100x100x200 mm, sensors on the 8 vertices."""
+    """Default specimen case: 100x100x200 mm, sensors on the 8 vertices,
+    whole specimen in the all-positive octant."""
     sensors = corners_layout(size=(0.1, 0.1, 0.2))
     assert len(sensors) == 8
     P = np.stack(list(sensors.values()))
-    assert np.allclose(P.min(axis=0), (-0.05, -0.05, -0.10))
-    assert np.allclose(P.max(axis=0), (0.05, 0.05, 0.10))
+    assert (P >= 0).all()
+    assert np.allclose(P.min(axis=0), (0.0, 0.0, 0.0))
+    assert np.allclose(P.max(axis=0), (0.1, 0.1, 0.2))
     sc = Scenario(sensors=sensors, sources=random_sources(5, sensors, seed=1),
                   velocity=5300.0, sigma=1e-6, repeats=2, seed=2)
     df = run_trials(GeigerLocator(sensors, velocity=5300.0), sc)

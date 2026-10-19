@@ -7,7 +7,6 @@ pick noise, outliers and channel dropout.  Run with
 """
 from __future__ import annotations
 
-import itertools
 import os
 import sys
 from dataclasses import replace
@@ -22,8 +21,8 @@ from locbench.plots import (DIST_ROWS, METRIC_LABELS, PARAM_LABELS,
                             SUMMARY_LABELS, display_table, plot_err_hist,
                             plot_layout, plot_metric_vs_param, unit_labels)
 from locbench.sweep import sweep
-from locbench.synth import (grid_sources, parse_layout, random_int_layout,
-                            random_sources)
+from locbench.synth import (corners_layout, grid_sources, parse_layout,
+                            random_int_layout, random_sources)
 
 st.set_page_config(page_title="locbench", page_icon="\U0001F3AF",
                    layout="wide")
@@ -63,10 +62,9 @@ with st.sidebar:
         return "\n".join(lines)
 
     if place_label == "顶点":
-        ext_mm = (lx_mm, ly_mm, lz_mm) if is_3d else (lx_mm, ly_mm)
+        ext = (lx, ly, lz) if is_3d else (lx, ly)
         st.session_state["layout_text"] = _fmt_layout(
-            tuple(v * 1e-3 for v in p)
-            for p in itertools.product(*[(0.0, s) for s in ext_mm]))
+            corners_layout(size=ext).values())     # 正象限 [0, size]
     elif place_label == "随机":
         ext_mm = ((int(round(lx_mm)), int(round(ly_mm)), int(round(lz_mm)))
                   if is_3d else (int(round(lx_mm)), int(round(ly_mm))))
@@ -95,18 +93,33 @@ with st.sidebar:
         st.stop()
     n_sensors = len(custom)
     custom_key = tuple(sorted(custom.items()))
-    source_mode = st.radio("震源布置", ["随机震源", "网格震源（xyz 间距）"])
-    if source_mode.startswith("随机"):
+    source_mode = st.radio("震源布置", ["随机震源", "网格震源"], index=1)
+    if source_mode == "随机震源":
         n_sources = st.slider("震源数", 1, 50, 10)
-        spacing_mm = 0.0
+        grid_spacing_mm = (0.0, 0.0, 0.0)
     else:
-        spacing_mm = st.number_input("网格间距 (mm)", 5.0, 500.0, 50.0, 5.0)
+        def _spacing(label, size_mm, key):
+            # 默认 = 尺寸/5；尺寸变化时默认跟随，用户手动改过后不再跟随
+            if key not in st.session_state or st.session_state.get(key + "_auto"):
+                st.session_state[key] = round(size_mm / 5.0, 6)
+                st.session_state[key + "_auto"] = True
+            return st.number_input(
+                label, 0.5, 2000.0, key=key, step=1.0,
+                on_change=lambda k=key: st.session_state.__setitem__(
+                    k + "_auto", False))
+
+        dx_mm = _spacing("网格间距 x (mm)", lx_mm, "grid_dx")
+        dy_mm = _spacing("网格间距 y (mm)", ly_mm, "grid_dy")
+        dz_mm = (_spacing("网格间距 z (mm)", lz_mm, "grid_dz")
+                 if is_3d else 0.0)
         n_sources = 0
-        counts = [max(1, int(round(s / (spacing_mm * 1e-3))))
-                  for s in (lx, ly, lz)]
+        spans = (lx, ly, lz) if is_3d else (lx, ly)
+        d_mm = (dx_mm, dy_mm, dz_mm) if is_3d else (dx_mm, dy_mm)
+        counts = [max(1, int(round(s / (d * 1e-3))))
+                  for s, d in zip(spans, d_mm)]
         st.caption(f"格数 ≈ {'×'.join(map(str, counts))} = "
-                   f"{counts[0] * counts[1] * counts[2]} 个震源"
-                   f"（格心布源，不含边界）")
+                   f"{int(np.prod(counts))} 个震源（格心布源，不含边界）")
+        grid_spacing_mm = (dx_mm, dy_mm, dz_mm)
     repeats = st.slider("震源重复次数", 1, 20, 3)
     seed = st.number_input("随机种子", 0, 1_000_000, key="seed")
     st.subheader("到时误差模拟")
@@ -125,7 +138,8 @@ with st.sidebar:
     est_v = st.checkbox("联合反演速度", False)
 
 SCENARIO_KEY = ("scenario", kind, n_sensors, lx, ly, lz, custom_key,
-                source_mode, n_sources, spacing_mm * 1e-3, repeats,
+                source_mode, n_sources,
+                tuple(d * 1e-3 for d in grid_spacing_mm), repeats,
                 seed, sigma_us * 1e-6, outlier_p, outlier_us * 1e-6, drop_p,
                 v_true)
 PARAMS = dict(velocity=v_used, grid_size=grid_size, margin=margin,
@@ -150,7 +164,8 @@ def make_scenario(scenario_key):
      v_true) = scenario_key
     sensors = dict(custom_key)          # the text box is the single source
     if source_mode.startswith("网格"):
-        sources = grid_sources(sensors, spacing=spacing)
+        dim = len(next(iter(sensors.values())))
+        sources = grid_sources(sensors, spacing=tuple(spacing[:dim]))
     else:
         sources = random_sources(n_sources, sensors, seed=seed + 1)
     return Scenario(sensors=sensors, sources=sources, velocity=v_true,
