@@ -12,7 +12,8 @@ import matplotlib.pyplot as plt
 from .evaluate import TRIAL_COLS
 
 __all__ = ["plot_layout", "plot_metric_vs_param", "plot_heatmap",
-           "plot_err_hist", "METRIC_LABELS", "PARAM_LABELS"]
+           "plot_err_hist", "METRIC_LABELS", "PARAM_LABELS",
+           "SUMMARY_LABELS", "TRIAL_LABELS"]
 
 #: 中文显示名（试用指标 / 扫描参数；未列出的键原样显示）
 METRIC_LABELS = {
@@ -32,6 +33,39 @@ PARAM_LABELS = {
     "outlier_p": "粗差比例",
     "outlier_jitter": "粗差幅度 (s)",
     "drop_p": "丢道比例",
+}
+#: 汇总统计（summarize 输出）的中文行名
+SUMMARY_LABELS = {
+    "trials": "试验数",
+    "failures": "失败数",
+    "converged_rate": "收敛率",
+    "err_median": "定位误差中位 (m)",
+    "err_mean": "定位误差均值 (m)",
+    "err_p95": "定位误差 p95 (m)",
+    "t0_err_median": "t0 误差中位 (s)",
+    "rms_median": "残差 RMS 中位 (s)",
+    "iter_mean": "平均迭代次数",
+    "runtime_ms_mean": "平均单次耗时 (ms)",
+    "stderr_calibration": "形式误差校准比",
+}
+#: 逐试验表的中文列名（dataframe 本身的列名保持英文键，仅显示时映射）
+TRIAL_LABELS = {
+    "source": "震源序号",
+    "repeat": "噪声重复",
+    "n_picks": "到时通道数",
+    "n_used": "参与定位通道数",
+    "converged": "是否收敛",
+    "err": "定位误差 (m)",
+    "t0_err": "t0 误差 (s)",
+    "rms": "残差 RMS (s)",
+    "n_iter": "迭代次数",
+    "stderr_pos": "形式误差模长 (m)",
+    "velocity": "波速 (m/s)",
+    "runtime_ms": "耗时 (ms)",
+    "failure": "失败原因",
+    "dx": "x 偏差 (m)",
+    "dy": "y 偏差 (m)",
+    "dz": "z 偏差 (m)",
 }
 
 

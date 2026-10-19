@@ -17,10 +17,22 @@ import streamlit as st
 
 from aelib import GeigerLocator
 from locbench.evaluate import Scenario, run_trials, summarize
-from locbench.plots import (METRIC_LABELS, PARAM_LABELS, plot_err_hist,
-                            plot_layout, plot_metric_vs_param)
+from locbench.plots import (METRIC_LABELS, PARAM_LABELS, SUMMARY_LABELS,
+                            TRIAL_LABELS, plot_err_hist, plot_layout,
+                            plot_metric_vs_param)
 from locbench.sweep import sweep
 from locbench.synth import coplanar_layout, random_layout, random_sources
+
+#: 表格列的中文显示名（仅显示层映射，DataFrame 列名/缓存/逻辑不变）
+DISPLAY_LABELS = {**TRIAL_LABELS, **METRIC_LABELS, **PARAM_LABELS}
+
+
+def display_table(df):
+    """表格中文显示：列名映射 + 收敛标记转'是/否'。"""
+    show = df.drop(columns=["coords"], errors="ignore")
+    if "converged" in show:
+        show = show.replace({"converged": {True: "是", False: "否"}})
+    return show.rename(columns=DISPLAY_LABELS)
 
 st.set_page_config(page_title="locbench", page_icon="\U0001F3AF",
                    layout="wide")
@@ -113,9 +125,9 @@ with tab_result:
         st.subheader("误差分布")
         st.pyplot(plot_err_hist(df))
         st.subheader("汇总")
-        st.dataframe(s.to_frame("value"))
+        st.dataframe(s.rename(SUMMARY_LABELS).to_frame("值"))
     with st.expander("逐试验表格"):
-        st.dataframe(df.drop(columns=["coords"]))
+        st.dataframe(display_table(df))
 
 # ---------------------------------------------------------- tab 2: sweep
 with tab_sweep:
@@ -185,7 +197,7 @@ with tab_sweep:
     with c2:
         st.pyplot(plot_metric_vs_param(df2, param, metric="runtime_ms"))
     with st.expander("扫描结果表"):
-        st.dataframe(df2.drop(columns=["coords"], errors="ignore"))
+        st.dataframe(display_table(df2))
 
 
 def main():
