@@ -167,8 +167,7 @@ def plot_layout(sensors: dict, sources=None, located=None,
             getattr(ax, f"set_{name}lim")(lo[i] - m, hi[i] + m)
         span = np.maximum(hi - lo + 2 * m, 1e-9 * (hi - lo + 2 * m).max())
         ax.set_box_aspect(tuple(span))
-    ax.legend()
-    return fig
+    return fig        # 不画图例：颜色含义写在界面小标题里
 
 
 def _scatter(ax, pts, **kw):

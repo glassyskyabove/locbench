@@ -330,7 +330,7 @@ with tab_result:
 
     left, right = st.columns([3, 2])
     with left:
-        st.subheader("台阵与定位（红=定位, 绿=真值, 线段=误差向量）")
+        st.subheader("定位结果（红=定位，绿=真值，黑=传感器）")
         sc = make_scenario(SCENARIO_KEY)
         located = np.full_like(np.asarray(sc.sources, dtype=float), np.nan)
         for r in df[df["err"].notna()].itertuples():
