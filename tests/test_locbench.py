@@ -282,6 +282,9 @@ def test_display_unit_scaling():
         lim = fig.axes[0].get_xlim()
         fig2 = plot_layout(sensors, sc.sources, None, unit=unit, factor=factor)
         assert fig2.axes[0].get_xlabel() == f"x ({unit})"
+        if unit == "mm":                    # 等轴：200mm 轴 ≈ 2× 100mm 轴
+            ba = fig2.axes[0].get_box_aspect()
+            assert 1.7 < ba[2] / ba[0] < 2.1
         pts = fig2.axes[0].collections[0].get_offsets() if unit == "2d" else None
         plt.close("all")
         if unit == "mm":

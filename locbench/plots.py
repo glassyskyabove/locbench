@@ -137,12 +137,15 @@ def plot_layout(sensors: dict, sources=None, located=None,
         fig, ax = plt.subplots(figsize=(6, 5))
         ax.scatter(P[:, 0], P[:, 1], marker="s", c="k", label="传感器", s=28)
         ax.set_aspect("equal")
+    pts_all = [P]                          # 已按显示单位缩放的全部点集
     if sources is not None:
         S = np.atleast_2d(np.asarray(sources, dtype=float)) * factor
+        pts_all.append(S)
         _scatter(ax, S, c="tab:green", label="真值震源")
     if located is not None:
         L = np.atleast_2d(np.asarray(located, dtype=float)) * factor
         finite = np.isfinite(L).all(axis=1)
+        pts_all.append(L[finite])
         _scatter(ax, L[finite], c="tab:red", label="定位结果")
         if sources is not None:
             for s, l in zip(S[finite], L[finite]):
@@ -154,6 +157,16 @@ def plot_layout(sensors: dict, sources=None, located=None,
                             c="tab:red", lw=0.8, alpha=0.7)
     for name in ("x", "y", "z")[:dim]:
         getattr(ax, f"set_{name}label")(f"{name} ({unit})")
+    if dim == 3:
+        # 等轴：盒子三边比例 = 数据物理跨度比例（默认立方体会把
+        # 100x100x200 的试样画成正方体）
+        allp = np.vstack(pts_all)
+        lo, hi = allp.min(axis=0), allp.max(axis=0)
+        m = 0.05 * max(float((hi - lo).max()), 1e-12)   # 5% 最大跨度的边距
+        for i, name in enumerate("xyz"):
+            getattr(ax, f"set_{name}lim")(lo[i] - m, hi[i] + m)
+        span = np.maximum(hi - lo + 2 * m, 1e-9 * (hi - lo + 2 * m).max())
+        ax.set_box_aspect(tuple(span))
     ax.legend()
     return fig
 
