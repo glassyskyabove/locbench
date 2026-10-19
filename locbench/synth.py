@@ -128,25 +128,29 @@ def corners_layout(size=(0.1, 0.1, 0.2), origin=(0.0, 0.0, 0.0)) -> Dict[int, tu
     return {i + 1: tuple(p) for i, p in enumerate(pts)}
 
 
-#: 边特征 -> 平行的轴向；边取过原点的那条
+#: 边特征 -> 平行的轴向（该向的全部边：三维 4 条、二维 2 条）
 EDGE_FEATURES = {"横边": 0, "纵边": 1, "垂边": 2}
-#: 面特征 -> 法向轴向；侧面/正面取过原点面，顶面取 z=Lz 面
+#: 面特征 -> 法向轴向（该向的两个面，各取面心）
 FACE_FEATURES = {"侧面": 0, "正面": 1, "顶面": 2}
 
 
-def feature_layout(size, edges: dict = None, faces=()) -> Dict[int, tuple]:
+def feature_layout(size, edges: dict = None, faces=(),
+                   vertices: bool = False) -> Dict[int, tuple]:
     """Sensors on named geometric features of the box ``[0, size]``.
 
-    ``edges`` maps an edge feature name (``横边``/``纵边``/``垂边`` = the
-    edge through the ORIGIN parallel to x/y/z) to the number of equally
-    spaced points on it: ``n`` sensors at ``k/(n+1) · span``, k = 1..n --
-    the interior division points, endpoints (box corners) excluded, so
-    edges never duplicate a corner.  ``faces`` lists face feature names
-    (``侧面``/``正面``/``顶面`` = the face with x/y/z normal); each
-    contributes ONE sensor at the face centre: 侧面 -> x=0, 正面 ->
-    y=0, 顶面 -> z=Lz (the top face).  Points come out edges first
-    (x, y, z order), then face centres; keys are 1..n.  A 2-entry
-    ``size`` allows only 横边/纵边 (no z features).
+    ``edges`` maps an edge feature name (``横边``/``纵边``/``垂边`` =
+    edges parallel to x/y/z -- ALL of them: four per axis in 3-D, two
+    in 2-D) to the number of equally spaced points PER EDGE: ``n``
+    sensors at ``k/(n+1) · span``, k = 1..n -- the interior division
+    points, box corners excluded, so edges never duplicate a corner.
+    ``faces`` lists face feature names (``侧面``/``正面``/``顶面`` =
+    the TWO faces with x/y/z normal); each face contributes ONE sensor
+    at its centre.  ``vertices=True`` adds one sensor on every box
+    corner (8 in 3-D, 4 in 2-D) -- the classic specimen setup,
+    combinable with edges since edge points are interior.  Points come
+    out edges first (x, y, z order, each edge's points grouped), then
+    face centres (low side first), then corners; keys are 1..n.
+    A 2-entry ``size`` allows only 横边/纵边 and 顶点 (no z features).
     """
     size = np.asarray(size, dtype=float)
     dim = size.size
@@ -162,17 +166,25 @@ def feature_layout(size, edges: dict = None, faces=()) -> Dict[int, tuple]:
             raise ValueError(f"{name}等分点数至少为 1")
         if dim == 2 and ax == 2:
             raise ValueError("二维布置没有垂边（z 方向的边）")
-        for k in range(1, n + 1):            # k/(n+1): 内部等分点
-            p = np.zeros(dim)
-            p[ax] = k * size[ax] / (n + 1)
-            pts.append(tuple(p))
+        others = [i for i in range(dim) if i != ax]
+        for combo in itertools.product((0.0, 1.0), repeat=dim - 1):
+            for k in range(1, n + 1):        # k/(n+1): 内部等分点
+                p = np.zeros(dim)
+                p[ax] = k * size[ax] / (n + 1)
+                for i, c in zip(others, combo):
+                    p[i] = c * size[i]
+                pts.append(tuple(p))
     for name in faces or ():
         ax = FACE_FEATURES[name]              # KeyError = unknown name
         if dim == 2 and ax == 2:
             raise ValueError("二维布置没有顶面（z 方向的面）")
-        c = size / 2.0
-        c[ax] = size[ax] if ax == 2 else 0.0  # 顶面取 z=Lz，其余取过原点面
-        pts.append(tuple(c))
+        for side in (0.0, 1.0):               # 法向两侧各一个面心
+            c = size / 2.0
+            c[ax] = side * size[ax]
+            pts.append(tuple(c))
+    if vertices:
+        pts.extend(tuple(np.array(s) * size)
+                   for s in itertools.product((0.0, 1.0), repeat=dim))
     return {i + 1: p for i, p in enumerate(pts)}
 
 

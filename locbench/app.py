@@ -112,30 +112,36 @@ with st.sidebar:
         return "\n".join(lines)
 
     if place_label == "几何特征":
+        n_edges = 4 if is_3d else 2               # 每个边特征覆盖的边数
         edge_names = ["横边", "纵边", "垂边"][: 3 if is_3d else 2]
         face_names = ["侧面", "正面", "顶面"] if is_3d else []
-        default_on = set(edge_names)
         ecols = st.columns(len(edge_names))          # 边一行
-        on = {f: ecols[i].checkbox(f, value=f in default_on)
+        on = {f: ecols[i].checkbox(f, value=False)
               for i, f in enumerate(edge_names)}
-        if face_names:
-            fcols = st.columns(len(face_names))      # 面一行
-            on.update({f: fcols[i].checkbox(f, value=f in default_on)
-                       for i, f in enumerate(face_names)})
+        fcols = st.columns(1 + len(face_names))      # 面 + 顶点一行
+        for i, f in enumerate(face_names):
+            on[f] = fcols[i].checkbox(f, value=False)
+        on["顶点"] = fcols[-1].checkbox(
+            "顶点", value=True,
+            help=f"全部{'8' if is_3d else '4'}个角点各布 1 个传感器"
+                 f"（经典试样监测布置）")
         edge_n = {}
         for f in ("横边", "纵边", "垂边"):
             if on.get(f):
                 edge_n[f] = st.number_input(
-                    f"{f}等分点数", 1, 32, 4,
-                    help="将该边 n+1 等分，传感器放在 n 个等分点上"
-                         "（不含两端端点，故不会与其他边的角点重复）")
-        faces = [f for f in on if on[f] and f not in edge_n]
+                    f"{f}等分点数（每条边）", 1, 32, 4,
+                    help=f"与{f[0]}轴平行的边共 {n_edges} 条，每条边"
+                         " n+1 等分取 n 个内部等分点（不含端点角点）")
+        faces = [f for f in on if on[f] and f not in edge_n
+                 and f != "顶点"]
         st.session_state["layout_text"] = _fmt_layout(
             feature_layout((lx, ly, lz) if is_3d else (lx, ly),
-                           edges=edge_n, faces=faces).values())
-        st.caption("横边/纵边/垂边 = 过原点、与 x/y/z 平行的边；"
-                   "侧面 = x=0 面、正面 = y=0 面（以法向命名）；"
-                   "顶面 = z=Lz 面。选中的面各布 1 个传感器于面心")
+                           edges=edge_n, faces=faces,
+                           vertices=on.get("顶点", False)).values())
+        st.caption(f"横边/纵边/垂边 = 与 x/y/z 平行的全部"
+                   f"{'4' if is_3d else '2'}条边；侧面/正面/顶面 = "
+                   f"以 x/y/z 为法向的两个面（各取面心）；顶点 = "
+                   f"全部{'8' if is_3d else '4'}个角点")
     elif place_label == "随机":
         ext_mm = ((int(round(lx * 1e3)), int(round(ly * 1e3)),
                    int(round(lz * 1e3))) if is_3d else
