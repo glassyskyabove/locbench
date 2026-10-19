@@ -61,11 +61,11 @@ METRIC_LABELS = {
     "stderr_calibration": "形式误差校准比",
 }
 PARAM_LABELS = {
-    "grid_size": "grid_size（网格点数/轴）",
-    "margin": "margin（包围盒外扩比例）",
+    "grid_size": "初值点间距（grid size）",
+    "margin": "外延比例（margin）",
     "velocity": "波速 (m/s)",
-    "max_iter": "max_iter（迭代上限）",
-    "tol": "tol（收敛判据 s）",
+    "max_iter": "迭代上限（max_iter）",
+    "tol": "收敛判据（tol s）",
     "sigma": "到时误差 σ (s)",
     "fs": "采样率 (Hz)",
     "drop_p": "丢道概率",

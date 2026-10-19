@@ -27,6 +27,32 @@ from locbench.synth import (corners_layout, grid_sources, parse_layout,
 
 st.set_page_config(page_title="locbench", page_icon="\U0001F3AF",
                    layout="wide")
+
+# 滚轮穿透：悬停数字输入框时滚轮强制滚动所在容器，而不是被输入框吞掉
+# （或误改数值）。经同源 iframe 注入到父页面，失败则静默跳过。
+st.iframe("""
+<script>
+try {
+  const doc = window.parent.document;
+  doc.addEventListener("wheel", (e) => {
+    const t = e.target;
+    if (t && t.tagName === "INPUT" && t.type === "number") {
+      if (doc.activeElement === t) t.blur();   // 已聚焦：先失焦防误改值
+      e.preventDefault();
+      let el = t.parentElement, sc = null;     // 找最近的滚动容器
+      while (el && el !== doc.body) {
+        if (/(auto|scroll)/.test(getComputedStyle(el).overflowY)) {
+          sc = el; break;
+        }
+        el = el.parentElement;
+      }
+      if (sc) sc.scrollTop += e.deltaY;
+    }
+  }, { passive: false, capture: true });
+} catch (err) { /* 沙箱限制时保持原生行为 */ }
+</script>
+""", height=1)
+
 st.title("locbench — 定位算法测试 / 调参")
 st.caption("所有数据均为数值模拟：合成台阵 + 合成震源 + 模拟拾取噪声 / 丢道。"
            "不含任何实测数据。")
@@ -171,9 +197,21 @@ with st.sidebar:
 
     st.header("定位器（Geiger）")
     v_used = st.number_input("采用波速 (m/s)", 100.0, 10000.0, 5300.0, 100.0)
-    grid_size = st.slider("grid_size", 4, 64, 24)
-    margin = st.slider("margin", 0.0, 0.5, 0.05, 0.01)
-    max_iter = st.number_input("max_iter（迭代上限）", 5, 500, 60, 5,
+    grid_size = st.slider("初值点间距（grid size）", 4, 64, 24,
+                          help="初值网格搜索每条轴的格点数——定位迭代前先"
+                               "在搜索盒内铺均匀网格，逐点算加权残差代价，"
+                               "取最优格点作迭代起点。格点越密初值越稳但"
+                               "初值阶段越慢（候选数按立方增长）")
+    st.caption(f"初值点 = {'×'.join([str(grid_size)] * (3 if is_3d else 2))}"
+               f" = {grid_size ** (3 if is_3d else 2)} 个候选点"
+               f"（{'三维' if is_3d else '二维'}网格搜索）")
+    margin = st.slider("外延比例（margin）", 0.0, 0.5, 0.05, 0.01,
+                       help="初值搜索盒 = 传感器包围盒各方向向外扩大的"
+                            "比例（0.05 = 每边外扩 5% 跨度）。震源通常在"
+                            "台阵包围盒内，默认值已够用；预判震源会越出"
+                            "台阵时才需加大。只影响初值搜索范围，不限制"
+                            "最终解的位置")
+    max_iter = st.number_input("迭代上限（max_iter）", 5, 500, 60, 5,
                                help="外层迭代次数上限，两种模式共用；"
                                     "跑满且末步 RMS 改善仍大于 tol 则标记"
                                     "未收敛")
