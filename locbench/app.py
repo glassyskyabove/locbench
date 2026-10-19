@@ -197,7 +197,7 @@ with st.sidebar:
 
     st.header("定位器（Geiger）")
     v_used = st.number_input("采用波速 (m/s)", 100.0, 10000.0, 5300.0, 100.0)
-    grid_size = st.slider("初值点间距（grid size）", 4, 64, 24,
+    grid_size = st.slider("初值点间距（grid size）", 4, 64, 4,
                           help="初值网格搜索每条轴的格点数——定位迭代前先"
                                "在搜索盒内铺均匀网格，逐点算加权残差代价，"
                                "取最优格点作迭代起点。格点越密初值越稳但"
@@ -205,12 +205,12 @@ with st.sidebar:
     st.caption(f"初值点 = {'×'.join([str(grid_size)] * (3 if is_3d else 2))}"
                f" = {grid_size ** (3 if is_3d else 2)} 个候选点"
                f"（{'三维' if is_3d else '二维'}网格搜索）")
-    margin = st.slider("外延比例（margin）", 0.0, 0.5, 0.05, 0.01,
+    margin = st.slider("外延比例（margin）", 0.0, 0.5, 0.0, 0.01,
                        help="初值搜索盒 = 传感器包围盒各方向向外扩大的"
-                            "比例（0.05 = 每边外扩 5% 跨度）。震源通常在"
-                            "台阵包围盒内，默认值已够用；预判震源会越出"
-                            "台阵时才需加大。只影响初值搜索范围，不限制"
-                            "最终解的位置")
+                            "比例（0.05 = 每边外扩 5% 跨度），默认 0 即"
+                            "只在包围盒内搜索。震源通常在台阵包围盒内；"
+                            "预判震源会越出台阵时才需加大。只影响初值搜"
+                            "索范围，不限制最终解的位置")
     max_iter = st.number_input("迭代上限（max_iter）", 5, 500, 60, 5,
                                help="外层迭代次数上限，两种模式共用；"
                                     "跑满且末步 RMS 改善仍大于 tol 则标记"
