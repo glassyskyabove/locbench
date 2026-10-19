@@ -130,8 +130,7 @@ with st.sidebar:
     v_true = st.number_input("真实波速 (m/s)", 100.0, 10000.0, 5300.0, 100.0)
 
     st.header("定位器（Geiger）")
-    v_used = st.number_input("采用波速 (m/s)", 100.0, 10000.0, 5300.0, 100.0,
-                             help="与真实波速不一致时检验速度误差敏感性")
+    v_used = st.number_input("采用波速 (m/s)", 100.0, 10000.0, 5300.0, 100.0)
     grid_size = st.slider("grid_size", 4, 64, 24)
     margin = st.slider("margin", 0.0, 0.5, 0.05, 0.01)
     damping = st.checkbox("LM 阻尼", True)
