@@ -155,7 +155,10 @@ def plot_layout(sensors: dict, sources=None, located=None,
         keep &= ((L >= lo - m) & (L <= hi + m)).all(axis=1)
         _scatter(ax, L[keep], c="tab:red", label="定位结果")
         if sources is not None:
-            for s, l in zip(S, L[keep]):     # zip：located 可短于 sources
+            for i in np.where(keep)[0]:      # 按原下标配对：过滤后仍对应
+                if i >= len(S):              # 同一个真值震源
+                    break
+                s, l = S[i], L[i]
                 if dim == 3:
                     ax.plot([s[0], l[0]], [s[1], l[1]], [s[2], l[2]],
                             c="tab:red", lw=0.8, alpha=0.7)

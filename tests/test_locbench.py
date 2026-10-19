@@ -300,6 +300,12 @@ def test_display_unit_scaling():
     assert 1.7 < ax3.get_box_aspect()[2] / ax3.get_box_aspect()[0] < 2.1
     red = next(c for c in ax3.collections if c.get_label() == "定位结果")
     assert len(red.get_offsets()) == len(bad) - 1    # 发散解未画
+    # 误差线段按下标配对：过滤后各线段仍从自己的真值震源出发
+    kept = np.flatnonzero((np.abs(bad) < 0.5).all(axis=1))  # 排除野点(米制)
+    assert len(ax3.lines) == len(kept)
+    for j, i in enumerate(kept):
+        start = np.array(ax3.lines[j].get_data_3d())[:, 0]
+        assert np.allclose(start, np.asarray(sc.sources)[i] * 1e3)
     from locbench.synth import corners_layout as _cl
     rect = _cl(size=(0.1, 0.1))
     fig4 = plot_layout(rect, random_sources(3, rect, seed=1),
