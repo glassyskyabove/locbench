@@ -137,17 +137,25 @@ def plot_layout(sensors: dict, sources=None, located=None,
         fig, ax = plt.subplots(figsize=(6, 5))
         ax.scatter(P[:, 0], P[:, 1], marker="s", c="k", label="传感器", s=28)
         ax.set_aspect("equal")
-    scene = [P]                # 视野取限只看台阵 + 真值震源（见下）
+    # 视野由台阵与真值震源决定：个别发散到远处的定位解不参与取限
+    # ——否则整幅图被拉爆（等轴盒子被压成薄片、固定大小的标记显得
+    # 巨大、长刻度数字溢出画布）。matplotlib 三维不按坐标限裁剪散点，
+    # 超视野的发散解会被投影画进图内，因此先算好视野再过滤再画。
+    # 被滤掉的定位解不显示，其误差仍见逐试验表格。
+    base = np.vstack([P] + ([np.atleast_2d(np.asarray(sources, dtype=float))
+                             * factor] if sources is not None else []))
+    lo, hi = base.min(axis=0), base.max(axis=0)
+    m = 0.05 * max(float((hi - lo).max()), 1e-12)      # 5% 最大跨度边距
     if sources is not None:
         S = np.atleast_2d(np.asarray(sources, dtype=float)) * factor
-        scene.append(S)
         _scatter(ax, S, c="tab:green", label="真值震源")
     if located is not None:
         L = np.atleast_2d(np.asarray(located, dtype=float)) * factor
-        finite = np.isfinite(L).all(axis=1)
-        _scatter(ax, L[finite], c="tab:red", label="定位结果")
+        keep = np.isfinite(L).all(axis=1)
+        keep &= ((L >= lo - m) & (L <= hi + m)).all(axis=1)
+        _scatter(ax, L[keep], c="tab:red", label="定位结果")
         if sources is not None:
-            for s, l in zip(S, L[finite]):   # zip：located 可短于 sources
+            for s, l in zip(S, L[keep]):     # zip：located 可短于 sources
                 if dim == 3:
                     ax.plot([s[0], l[0]], [s[1], l[1]], [s[2], l[2]],
                             c="tab:red", lw=0.8, alpha=0.7)
@@ -156,13 +164,6 @@ def plot_layout(sensors: dict, sources=None, located=None,
                             c="tab:red", lw=0.8, alpha=0.7)
     for name in ("x", "y", "z")[:dim]:
         getattr(ax, f"set_{name}label")(f"{name} ({unit})")
-    # 视野由台阵与真值震源决定：个别发散到远处的定位解不参与取限
-    # ——否则整幅图被拉爆（等轴盒子被压成薄片、固定大小的标记显得
-    # 巨大、长刻度数字溢出画布）。超出视野的定位解不显示，其误差
-    # 仍见逐试验表格。
-    base = np.vstack(scene)
-    lo, hi = base.min(axis=0), base.max(axis=0)
-    m = 0.05 * max(float((hi - lo).max()), 1e-12)      # 5% 最大跨度边距
     if dim == 3:
         for i, name in enumerate("xyz"):
             getattr(ax, f"set_{name}lim")(lo[i] - m, hi[i] + m)
@@ -181,6 +182,13 @@ def _scatter(ax, pts, **kw):
         ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2], **kw)
     else:
         ax.scatter(pts[:, 0], pts[:, 1], **kw)
+
+
+def close_fig(fig) -> None:
+    """Release a rendered figure (st.pyplot does not): streamlit reruns
+    the whole script on every widget change, so unclosed figures pile up
+    in pyplot's registry -- growing memory and slowing each rerun."""
+    plt.close(fig)
 
 
 def plot_metric_vs_param(df, param: str, metric: str = "err",

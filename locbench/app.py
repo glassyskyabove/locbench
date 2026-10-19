@@ -21,6 +21,7 @@ from locbench.plots import (DIST_ROWS, METRIC_LABELS, PARAM_LABELS,
                             SUMMARY_LABELS, TIME_ROWS, display_table,
                             plot_err_hist, plot_layout,
                             plot_metric_vs_param, unit_labels)
+from locbench.plots import close_fig
 from locbench.sweep import sweep
 from locbench.synth import (feature_layout, grid_sources, parse_layout,
                             random_int_layout, random_sources)
@@ -335,11 +336,15 @@ with tab_result:
         located = np.full_like(np.asarray(sc.sources, dtype=float), np.nan)
         for r in df[df["err"].notna()].itertuples():
             located[int(r.source)] = r.coords
-        st.pyplot(plot_layout(sc.sensors, sc.sources, located,
-                              unit=disp_unit, factor=factor))
+        fig = plot_layout(sc.sensors, sc.sources, located,
+                          unit=disp_unit, factor=factor)
+        st.pyplot(fig)
+        close_fig(fig)
     with right:
         st.subheader("误差分布")
-        st.pyplot(plot_err_hist(df, unit=disp_unit, factor=factor))
+        fig = plot_err_hist(df, unit=disp_unit, factor=factor)
+        st.pyplot(fig)
+        close_fig(fig)
         st.subheader("汇总")
         s_show = s.copy()
         for rows, f in ((DIST_ROWS, factor), (TIME_ROWS, tfactor)):
@@ -417,13 +422,17 @@ with tab_sweep:
         gcol = "_cal"
     c1, c2 = st.columns(2)
     with c1:
-        st.pyplot(plot_metric_vs_param(df2, param, metric=gcol, agg=agg,
-                                       dist_unit=disp_unit,
-                                       dist_factor=factor,
-                                       time_unit=time_unit,
-                                       time_factor=tfactor))
+        fig = plot_metric_vs_param(df2, param, metric=gcol, agg=agg,
+                                   dist_unit=disp_unit,
+                                   dist_factor=factor,
+                                   time_unit=time_unit,
+                                   time_factor=tfactor)
+        st.pyplot(fig)
+        close_fig(fig)
     with c2:
-        st.pyplot(plot_metric_vs_param(df2, param, metric="runtime_ms"))
+        fig = plot_metric_vs_param(df2, param, metric="runtime_ms")
+        st.pyplot(fig)
+        close_fig(fig)
     with st.expander("扫描结果表"):
         st.dataframe(display_table(df2, disp_unit, factor,
                                    time_unit, tfactor))

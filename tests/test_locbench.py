@@ -289,8 +289,8 @@ def test_display_unit_scaling():
         plt.close("all")
         if unit == "mm":
             assert lim[1] > 1.0          # mm scale: errors render > 1
-    # 发散的定位解不参与取限：视野仍由台阵+真值决定（否则等轴盒子
-    # 被压成薄片、标记相对巨大、刻度溢出画布——"有时候图不对劲"）
+    # 发散的定位解不参与取限也不被画出：matplotlib 三维不按坐标限
+    # 裁剪散点，超视野的点会被投影进图内（反复调参时"图变形"的根源）
     bad = sc.sources.copy()
     bad[1] = (0.9, 0.4, 0.1)                # 跑到 900mm 外的发散解
     fig3 = plot_layout(sensors, sc.sources, bad, unit="mm", factor=1e3)
@@ -298,6 +298,8 @@ def test_display_unit_scaling():
     assert max(abs(np.array(ax3.get_xlim()))).max() < 200
     assert max(abs(np.array(ax3.get_zlim()))).max() < 300
     assert 1.7 < ax3.get_box_aspect()[2] / ax3.get_box_aspect()[0] < 2.1
+    red = next(c for c in ax3.collections if c.get_label() == "定位结果")
+    assert len(red.get_offsets()) == len(bad) - 1    # 发散解未画
     from locbench.synth import corners_layout as _cl
     rect = _cl(size=(0.1, 0.1))
     fig4 = plot_layout(rect, random_sources(3, rect, seed=1),
