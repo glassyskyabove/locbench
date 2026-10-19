@@ -36,16 +36,37 @@ with st.sidebar:
     st.header("显示")
     disp_unit = st.radio("距离单位", ["mm", "m"], horizontal=True)
     factor = 1e3 if disp_unit == "mm" else 1.0
-    time_unit = st.radio("时间单位", ["ms", "s"], horizontal=True)
-    tfactor = 1e3 if time_unit == "ms" else 1.0
+    time_unit = st.radio("时间单位", ["ms", "s", "µs", "ns"], horizontal=True)
+    tfactor = {"s": 1.0, "ms": 1e3, "µs": 1e6, "ns": 1e9}[time_unit]
     st.header("场景（合成）")
     dim_label = st.radio("维度", ["三维", "二维"])
     is_3d = dim_label == "三维"
-    lx_mm = st.number_input("试样尺寸 x (mm)", 10.0, 2000.0, 100.0, 10.0)
-    ly_mm = st.number_input("试样尺寸 y (mm)", 10.0, 2000.0, 100.0, 10.0)
-    lz_mm = (st.number_input("试样尺寸 z (mm)", 10.0, 2000.0, 200.0, 10.0)
+    sz_unit = st.selectbox("尺寸单位", ["mm", "m"])          # 尺寸与间距共用
+    u_sz = 1e-3 if sz_unit == "mm" else 1.0
+
+    def _auto_default(key, default):
+        # 默认值跟随（单位/尺寸）联动，用户手动改过后不再跟随
+        if key not in st.session_state or st.session_state.get(key + "_auto"):
+            st.session_state[key] = default
+            st.session_state[key + "_auto"] = True
+
+    def _unset_auto(key):
+        st.session_state[key + "_auto"] = False
+
+    s_min, s_max, s_step = ((10.0, 2000.0, 10.0) if sz_unit == "mm"
+                            else (0.01, 2.0, 0.01))
+    _auto_default("size_x", 0.1 / u_sz)                    # 基准 100 mm
+    lx_in = st.number_input("试样尺寸 x", s_min, s_max, key="size_x",
+                            step=s_step, on_change=lambda: _unset_auto("size_x"))
+    _auto_default("size_y", 0.1 / u_sz)
+    ly_in = st.number_input("试样尺寸 y", s_min, s_max, key="size_y",
+                            step=s_step, on_change=lambda: _unset_auto("size_y"))
+    _auto_default("size_z", 0.2 / u_sz)                    # 基准 200 mm
+    lz_in = (st.number_input("试样尺寸 z", s_min, s_max, key="size_z",
+                             step=s_step,
+                             on_change=lambda: _unset_auto("size_z"))
              if is_3d else 0.0)
-    lx, ly, lz = lx_mm * 1e-3, ly_mm * 1e-3, lz_mm * 1e-3     # -> m
+    lx, ly, lz = lx_in * u_sz, ly_in * u_sz, lz_in * u_sz     # -> m
     place_label = st.radio("传感器布置", ["顶点", "随机", "自定义"])
     kind = f"{'3d' if is_3d else '2d'}-" + {"顶点": "corners",
                                             "随机": "random",
@@ -69,8 +90,9 @@ with st.sidebar:
         st.session_state["layout_text"] = _fmt_layout(
             corners_layout(size=ext).values())     # 正象限 [0, size]
     elif place_label == "随机":
-        ext_mm = ((int(round(lx_mm)), int(round(ly_mm)), int(round(lz_mm)))
-                  if is_3d else (int(round(lx_mm)), int(round(ly_mm))))
+        ext_mm = ((int(round(lx * 1e3)), int(round(ly * 1e3)),
+                   int(round(lz * 1e3))) if is_3d else
+                  (int(round(lx * 1e3)), int(round(ly * 1e3))))
         # 随机种子控件在侧栏更下方：先读 session_state（首跑用默认 0）
         seed_gen = st.session_state.get("seed", 0)
         rand = random_int_layout(n_wanted, extent=ext_mm, seed=seed_gen)
@@ -99,38 +121,49 @@ with st.sidebar:
     source_mode = st.radio("震源布置", ["随机震源", "网格震源"], index=1)
     if source_mode == "随机震源":
         n_sources = st.slider("震源数", 1, 50, 10)
-        grid_spacing_mm = (0.0, 0.0, 0.0)
+        grid_d_in = (0.0, 0.0, 0.0)
     else:
-        def _spacing(label, size_mm, key):
-            # 默认 = 尺寸/5；尺寸变化时默认跟随，用户手动改过后不再跟随
-            if key not in st.session_state or st.session_state.get(key + "_auto"):
-                st.session_state[key] = round(size_mm / 5.0, 6)
-                st.session_state[key + "_auto"] = True
-            return st.number_input(
-                label, 0.5, 2000.0, key=key, step=1.0,
-                on_change=lambda k=key: st.session_state.__setitem__(
-                    k + "_auto", False))
+        d_min, d_max, d_step = ((0.5, 2000.0, 1.0) if sz_unit == "mm"
+                                else (0.0005, 2.0, 0.001))
 
-        dx_mm = _spacing("网格间距 x (mm)", lx_mm, "grid_dx")
-        dy_mm = _spacing("网格间距 y (mm)", ly_mm, "grid_dy")
-        dz_mm = (_spacing("网格间距 z (mm)", lz_mm, "grid_dz")
-                 if is_3d else 0.0)
+        def _spacing(label, size_in, key):
+            # 默认 = 尺寸/5（当前单位）；联动规则同尺寸输入
+            _auto_default(key, round(size_in / 5.0, 9))
+            return st.number_input(label, d_min, d_max, key=key, step=d_step,
+                                   on_change=lambda k=key: _unset_auto(k))
+
+        dx_in = _spacing("网格间距 x", lx_in, "grid_dx")
+        dy_in = _spacing("网格间距 y", ly_in, "grid_dy")
+        dz_in = (_spacing("网格间距 z", lz_in, "grid_dz") if is_3d else 0.0)
         n_sources = 0
         spans = (lx, ly, lz) if is_3d else (lx, ly)
-        d_mm = (dx_mm, dy_mm, dz_mm) if is_3d else (dx_mm, dy_mm)
-        counts = [max(1, int(round(s / (d * 1e-3))))
-                  for s, d in zip(spans, d_mm)]
+        d_ins = (dx_in, dy_in, dz_in) if is_3d else (dx_in, dy_in)
+        counts = [max(1, int(round(s / (d * u_sz))))
+                  for s, d in zip(spans, d_ins)]
         st.caption(f"格数 ≈ {'×'.join(map(str, counts))} = "
                    f"{int(np.prod(counts))} 个震源（格心布源，不含边界）")
-        grid_spacing_mm = (dx_mm, dy_mm, dz_mm)
+        grid_d_in = (dx_in, dy_in, dz_in)
     repeats = st.slider("震源重复次数", 1, 20, 3)
     seed = st.number_input("随机种子", 0, 1_000_000, key="seed")
     st.subheader("到时误差模拟")
-    sigma_us = st.slider("拾取噪声 σ (µs)", 0.0, 50.0, 1.0, 0.5)
-    fs_mhz = st.number_input("采样率 (MHz)", 0.0, 200.0, 10.0, 1.0,
-                             help="到时按采样周期 1/fs 量化（模拟仪器时间"
-                                  "分辨率，如 10 MHz → 0.1 µs）；0 = 连续"
-                                  "不量化")
+    fs_unit = st.selectbox("采样率单位", ["MHz", "kHz"])
+    f_fs = 1e6 if fs_unit == "MHz" else 1e3
+    fs_min, fs_max, fs_step = ((0.0, 200.0, 1.0) if fs_unit == "MHz"
+                               else (0.0, 200_000.0, 100.0))
+    _auto_default("fs_in", 10e6 / f_fs)                    # 基准 10 MHz
+    fs_in = st.number_input("采样率", fs_min, fs_max, key="fs_in",
+                            step=fs_step,
+                            on_change=lambda: _unset_auto("fs_in"),
+                            help="到时按采样周期 1/fs 量化（模拟仪器时间分"
+                                 "辨率，如 10 MHz → 0.1 µs）；0 = 连续不量化")
+    fs_hz = fs_in * f_fs
+    err_unit = st.selectbox("误差单位", ["µs", "ms"])
+    f_err = 1e-6 if err_unit == "µs" else 1e-3
+    _auto_default("sigma_in", 1e-6 / f_err)                # 基准 1 µs
+    sigma_in = st.slider("到时误差 σ", 0.0, 50e-6 / f_err, key="sigma_in",
+                         step=0.5e-6 / f_err,
+                         on_change=lambda: _unset_auto("sigma_in"))
+    sigma_s = sigma_in * f_err
     drop_p = st.slider("丢道概率", 0.0, 0.5, 0.1, 0.01,
                        help="每个事件对每个通道独立抽一个 [0,1) 均匀随机数，"
                             "小于该值则此通道在此事件中被丢弃")
@@ -145,8 +178,8 @@ with st.sidebar:
 
 SCENARIO_KEY = ("scenario", kind, n_sensors, lx, ly, lz, custom_key,
                 source_mode, n_sources,
-                tuple(d * 1e-3 for d in grid_spacing_mm), repeats,
-                seed, sigma_us * 1e-6, drop_p, fs_mhz * 1e6, v_true)
+                tuple(d * u_sz for d in grid_d_in), repeats,
+                seed, sigma_s, drop_p, fs_hz, v_true)
 PARAMS = dict(velocity=v_used, grid_size=grid_size, margin=margin,
               damping=damping, estimate_velocity=est_v)
 
