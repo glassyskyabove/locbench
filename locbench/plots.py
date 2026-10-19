@@ -137,18 +137,17 @@ def plot_layout(sensors: dict, sources=None, located=None,
         fig, ax = plt.subplots(figsize=(6, 5))
         ax.scatter(P[:, 0], P[:, 1], marker="s", c="k", label="传感器", s=28)
         ax.set_aspect("equal")
-    pts_all = [P]                          # 已按显示单位缩放的全部点集
+    scene = [P]                # 视野取限只看台阵 + 真值震源（见下）
     if sources is not None:
         S = np.atleast_2d(np.asarray(sources, dtype=float)) * factor
-        pts_all.append(S)
+        scene.append(S)
         _scatter(ax, S, c="tab:green", label="真值震源")
     if located is not None:
         L = np.atleast_2d(np.asarray(located, dtype=float)) * factor
         finite = np.isfinite(L).all(axis=1)
-        pts_all.append(L[finite])
         _scatter(ax, L[finite], c="tab:red", label="定位结果")
         if sources is not None:
-            for s, l in zip(S[finite], L[finite]):
+            for s, l in zip(S, L[finite]):   # zip：located 可短于 sources
                 if dim == 3:
                     ax.plot([s[0], l[0]], [s[1], l[1]], [s[2], l[2]],
                             c="tab:red", lw=0.8, alpha=0.7)
@@ -157,16 +156,23 @@ def plot_layout(sensors: dict, sources=None, located=None,
                             c="tab:red", lw=0.8, alpha=0.7)
     for name in ("x", "y", "z")[:dim]:
         getattr(ax, f"set_{name}label")(f"{name} ({unit})")
+    # 视野由台阵与真值震源决定：个别发散到远处的定位解不参与取限
+    # ——否则整幅图被拉爆（等轴盒子被压成薄片、固定大小的标记显得
+    # 巨大、长刻度数字溢出画布）。超出视野的定位解不显示，其误差
+    # 仍见逐试验表格。
+    base = np.vstack(scene)
+    lo, hi = base.min(axis=0), base.max(axis=0)
+    m = 0.05 * max(float((hi - lo).max()), 1e-12)      # 5% 最大跨度边距
     if dim == 3:
-        # 等轴：盒子三边比例 = 数据物理跨度比例（默认立方体会把
-        # 100x100x200 的试样画成正方体）
-        allp = np.vstack(pts_all)
-        lo, hi = allp.min(axis=0), allp.max(axis=0)
-        m = 0.05 * max(float((hi - lo).max()), 1e-12)   # 5% 最大跨度的边距
         for i, name in enumerate("xyz"):
             getattr(ax, f"set_{name}lim")(lo[i] - m, hi[i] + m)
+        # 等轴：盒子三边比例 = 数据物理跨度比例（默认立方体会把
+        # 100x100x200 的试样画成正方体）
         span = np.maximum(hi - lo + 2 * m, 1e-9 * (hi - lo + 2 * m).max())
         ax.set_box_aspect(tuple(span))
+    else:
+        ax.set_xlim(lo[0] - m, hi[0] + m)
+        ax.set_ylim(lo[1] - m, hi[1] + m)
     return fig        # 不画图例：颜色含义写在界面小标题里
 
 

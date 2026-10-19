@@ -289,6 +289,20 @@ def test_display_unit_scaling():
         plt.close("all")
         if unit == "mm":
             assert lim[1] > 1.0          # mm scale: errors render > 1
+    # 发散的定位解不参与取限：视野仍由台阵+真值决定（否则等轴盒子
+    # 被压成薄片、标记相对巨大、刻度溢出画布——"有时候图不对劲"）
+    bad = sc.sources.copy()
+    bad[1] = (0.9, 0.4, 0.1)                # 跑到 900mm 外的发散解
+    fig3 = plot_layout(sensors, sc.sources, bad, unit="mm", factor=1e3)
+    ax3 = fig3.axes[0]
+    assert max(abs(np.array(ax3.get_xlim()))).max() < 200
+    assert max(abs(np.array(ax3.get_zlim()))).max() < 300
+    assert 1.7 < ax3.get_box_aspect()[2] / ax3.get_box_aspect()[0] < 2.1
+    from locbench.synth import corners_layout as _cl
+    rect = _cl(size=(0.1, 0.1))
+    fig4 = plot_layout(rect, random_sources(3, rect, seed=1),
+                       np.array([[5.0, -3.0]]), unit="m", factor=1.0)
+    assert abs(np.array(fig4.axes[0].get_xlim())).max() < 1.0   # 二维同理
     from locbench.plots import display_table
     show = display_table(df, "mm", 1e3)
     assert "定位误差 (mm)" in show.columns
