@@ -17,23 +17,12 @@ import streamlit as st
 
 from aelib import GeigerLocator
 from locbench.evaluate import Scenario, run_trials, summarize
-from locbench.plots import (METRIC_LABELS, PARAM_LABELS, SUMMARY_LABELS,
-                            TRIAL_LABELS, plot_err_hist, plot_layout,
-                            plot_metric_vs_param)
+from locbench.plots import (DIST_ROWS, METRIC_LABELS, PARAM_LABELS,
+                            SUMMARY_LABELS, display_table, plot_err_hist,
+                            plot_layout, plot_metric_vs_param, unit_labels)
 from locbench.sweep import sweep
 from locbench.synth import (corners_layout, coplanar_layout, grid_sources,
                             random_layout, random_sources)
-
-#: 表格列的中文显示名（仅显示层映射，DataFrame 列名/缓存/逻辑不变）
-DISPLAY_LABELS = {**TRIAL_LABELS, **METRIC_LABELS, **PARAM_LABELS}
-
-
-def display_table(df):
-    """表格中文显示：列名映射 + 收敛标记转'是/否'。"""
-    show = df.drop(columns=["coords"], errors="ignore")
-    if "converged" in show:
-        show = show.replace({"converged": {True: "是", False: "否"}})
-    return show.rename(columns=DISPLAY_LABELS)
 
 st.set_page_config(page_title="locbench", page_icon="\U0001F3AF",
                    layout="wide")
@@ -43,6 +32,9 @@ st.caption("所有数据均为数值模拟：合成台阵 + 合成震源 + 模�
 
 # ------------------------------------------------------------- sidebar
 with st.sidebar:
+    st.header("显示")
+    disp_unit = st.radio("距离单位", ["mm", "m"], horizontal=True)
+    factor = 1e3 if disp_unit == "mm" else 1.0
     st.header("场景（合成）")
     kind_label = st.radio(
         "台阵布置",
@@ -136,8 +128,8 @@ with tab_result:
     df = run_trials_cached(SCENARIO_KEY, PARAMS)
     s = summarize(df)
     c = st.columns(6)
-    c[0].metric("定位误差中位 (mm)", f"{s.err_median * 1e3:.2f}")
-    c[1].metric("误差 p95 (mm)", f"{s.err_p95 * 1e3:.2f}")
+    c[0].metric(f"定位误差中位 ({disp_unit})", f"{s.err_median * factor:.2f}")
+    c[1].metric(f"误差 p95 ({disp_unit})", f"{s.err_p95 * factor:.2f}")
     c[2].metric("收敛率", f"{s.converged_rate * 100:.0f}%")
     c[3].metric("残差 rms 中位 (µs)", f"{s.rms_median * 1e6:.2f}")
     c[4].metric("平均迭代", f"{s.iter_mean:.1f}")
@@ -152,14 +144,20 @@ with tab_result:
         located = np.full_like(np.asarray(sc.sources, dtype=float), np.nan)
         for r in df[df["err"].notna()].itertuples():
             located[int(r.source)] = r.coords
-        st.pyplot(plot_layout(sc.sensors, sc.sources, located))
+        st.pyplot(plot_layout(sc.sensors, sc.sources, located,
+                              unit=disp_unit, factor=factor))
     with right:
         st.subheader("误差分布")
-        st.pyplot(plot_err_hist(df))
+        st.pyplot(plot_err_hist(df, unit=disp_unit, factor=factor))
         st.subheader("汇总")
-        st.dataframe(s.rename(SUMMARY_LABELS).to_frame("值"))
+        s_show = s.copy()
+        for k in DIST_ROWS:
+            if pd.notna(s_show.get(k)):
+                s_show[k] = s_show[k] * factor
+        st.dataframe(s_show.rename(
+            unit_labels(SUMMARY_LABELS, DIST_ROWS, disp_unit)).to_frame("值"))
     with st.expander("逐试验表格"):
-        st.dataframe(display_table(df))
+        st.dataframe(display_table(df, disp_unit, factor))
 
 # ---------------------------------------------------------- tab 2: sweep
 with tab_sweep:
@@ -225,11 +223,13 @@ with tab_sweep:
         gcol = "_cal"
     c1, c2 = st.columns(2)
     with c1:
-        st.pyplot(plot_metric_vs_param(df2, param, metric=gcol, agg=agg))
+        st.pyplot(plot_metric_vs_param(df2, param, metric=gcol, agg=agg,
+                                       dist_unit=disp_unit,
+                                       dist_factor=factor))
     with c2:
         st.pyplot(plot_metric_vs_param(df2, param, metric="runtime_ms"))
     with st.expander("扫描结果表"):
-        st.dataframe(display_table(df2))
+        st.dataframe(display_table(df2, disp_unit, factor))
 
 
 def main():

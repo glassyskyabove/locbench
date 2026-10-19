@@ -122,3 +122,31 @@ def test_sweep_runs_and_caches(tmp_path):
     df2 = sweep(GeigerLocator, grid, sc, cache_dir=str(tmp_path),
                 locator_kwargs={"velocity": 5300.0})
     pd.testing.assert_frame_equal(df, df2)   # cache hit, identical table
+
+
+def test_display_unit_scaling():
+    """Distance displays scale m -> mm without touching the data layer."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from locbench.plots import plot_err_hist, plot_layout
+
+    sensors = corners_layout(size=(0.1, 0.1, 0.2))
+    sc = Scenario(sensors=sensors, sources=random_sources(3, sensors, seed=1),
+                  velocity=5300.0, sigma=1e-6, seed=2)
+    df = run_trials(GeigerLocator(sensors, velocity=5300.0), sc)
+    for unit, factor in (("m", 1.0), ("mm", 1e3)):
+        fig = plot_err_hist(df, unit=unit, factor=factor)
+        assert fig.axes[0].get_xlabel() == f"定位误差 ({unit})"
+        lim = fig.axes[0].get_xlim()
+        fig2 = plot_layout(sensors, sc.sources, None, unit=unit, factor=factor)
+        assert fig2.axes[0].get_xlabel() == f"x ({unit})"
+        pts = fig2.axes[0].collections[0].get_offsets() if unit == "2d" else None
+        plt.close("all")
+        if unit == "mm":
+            assert lim[1] > 1.0          # mm scale: errors render > 1
+    from locbench.plots import display_table
+    show = display_table(df, "mm", 1e3)
+    assert "定位误差 (mm)" in show.columns
+    assert np.allclose(show["定位误差 (mm)"].dropna(),
+                       df["err"].dropna() * 1e3)

@@ -12,8 +12,36 @@ import matplotlib.pyplot as plt
 from .evaluate import TRIAL_COLS
 
 __all__ = ["plot_layout", "plot_metric_vs_param", "plot_heatmap",
-           "plot_err_hist", "METRIC_LABELS", "PARAM_LABELS",
-           "SUMMARY_LABELS", "TRIAL_LABELS"]
+           "plot_err_hist", "display_table", "unit_labels",
+           "DIST_COLS", "DIST_ROWS",
+           "METRIC_LABELS", "PARAM_LABELS", "SUMMARY_LABELS", "TRIAL_LABELS"]
+
+#: 距离列/行（米 -> 显示单位缩放，单位注记同步替换）
+DIST_COLS = ("err", "dx", "dy", "dz", "stderr_pos")
+DIST_ROWS = ("err_median", "err_mean", "err_p95")
+
+
+def unit_labels(labels, keys, unit):
+    """把 labels 中 keys 的 '(m)' 注记替换为显示单位（unit == 'm' 时原样）。"""
+    if unit == "m":
+        return labels
+    return {k: (v.replace("(m)", f"({unit})") if k in keys else v)
+            for k, v in labels.items()}
+
+
+def display_table(df, unit="m", factor=1.0):
+    """表格中文显示：列名映射、距离列换算成显示单位（米 x factor）、
+    收敛标记转'是/否'。仅显示层，不改动原 DataFrame。"""
+    show = df.drop(columns=["coords"], errors="ignore").copy()
+    if factor != 1.0:
+        for c in DIST_COLS:
+            if c in show:
+                show[c] = show[c] * factor
+    if "converged" in show:
+        show = show.replace({"converged": {True: "是", False: "否"}})
+    labels = unit_labels({**TRIAL_LABELS, **METRIC_LABELS, **PARAM_LABELS},
+                         DIST_COLS, unit)
+    return show.rename(columns=labels)
 
 #: 中文显示名（试用指标 / 扫描参数；未列出的键原样显示）
 METRIC_LABELS = {
@@ -85,10 +113,12 @@ def _cjk_font():
 _cjk_font()
 
 
-def plot_layout(sensors: dict, sources=None, located=None):
+def plot_layout(sensors: dict, sources=None, located=None,
+                unit: str = "m", factor: float = 1.0):
     """台阵布置 + 真值/定位震源；真值->定位的线段即误差向量。2-D/3-D
-    跟随传感器维度。"""
-    P = np.stack([np.asarray(p, dtype=float) for p in sensors.values()])
+    跟随传感器维度。坐标按显示单位缩放（数据本身是米，``factor``
+    米->显示单位，如 mm 取 1e3），轴标注带单位。"""
+    P = np.stack([np.asarray(p, dtype=float) for p in sensors.values()]) * factor
     dim = P.shape[1]
     if dim == 3:
         fig = plt.figure(figsize=(6, 5))
@@ -100,10 +130,10 @@ def plot_layout(sensors: dict, sources=None, located=None):
         ax.scatter(P[:, 0], P[:, 1], marker="s", c="k", label="传感器", s=28)
         ax.set_aspect("equal")
     if sources is not None:
-        S = np.atleast_2d(np.asarray(sources, dtype=float))
+        S = np.atleast_2d(np.asarray(sources, dtype=float)) * factor
         _scatter(ax, S, c="tab:green", label="真值震源")
     if located is not None:
-        L = np.atleast_2d(np.asarray(located, dtype=float))
+        L = np.atleast_2d(np.asarray(located, dtype=float)) * factor
         finite = np.isfinite(L).all(axis=1)
         _scatter(ax, L[finite], c="tab:red", label="定位结果")
         if sources is not None:
@@ -114,6 +144,8 @@ def plot_layout(sensors: dict, sources=None, located=None):
                 else:
                     ax.plot([s[0], l[0]], [s[1], l[1]],
                             c="tab:red", lw=0.8, alpha=0.7)
+    for name in ("x", "y", "z")[:dim]:
+        getattr(ax, f"set_{name}label")(f"{name} ({unit})")
     ax.legend()
     return fig
 
@@ -126,9 +158,11 @@ def _scatter(ax, pts, **kw):
 
 
 def plot_metric_vs_param(df, param: str, metric: str = "err",
-                         agg: str = "median", ax=None):
+                         agg: str = "median", ax=None,
+                         dist_unit: str = "m", dist_factor: float = 1.0):
     """指标随单个扫描参数的变化：中位线 + 四分位带。其余扫描参数
-    （不属于试用指标的列）各画一条线。"""
+    （不属于试用指标的列）各画一条线。距离类指标（err）按显示单位
+    缩放并标注。"""
     agg_cn = {"median": "中位", "mean": "均值"}.get(agg, agg)
     if ax is None:
         fig, ax = plt.subplots(figsize=(6.5, 4))
@@ -137,6 +171,8 @@ def plot_metric_vs_param(df, param: str, metric: str = "err",
     others = [c for c in df.columns
               if c not in TRIAL_COLS and c != param and df[c].nunique() > 1]
     sub = df.dropna(subset=[metric])
+    if metric == "err":
+        sub = sub.assign(err=sub["err"] * dist_factor)
     for key, grp in (sub.groupby(others) if others
                      else [(None, sub)]):
         g = grp.groupby(param)[metric]
@@ -149,7 +185,9 @@ def plot_metric_vs_param(df, param: str, metric: str = "err",
         ax.plot(x, center.values, marker="o", label=label)
         ax.fill_between(x, lo.values, hi.values, alpha=0.2)
     ax.set_xlabel(PARAM_LABELS.get(param, param))
-    ax.set_ylabel(f"{METRIC_LABELS.get(metric, metric)}（{agg_cn}）")
+    ylab = (f"定位误差 ({dist_unit})" if metric == "err"
+            else METRIC_LABELS.get(metric, metric))
+    ax.set_ylabel(f"{ylab}（{agg_cn}）")
     if others:
         ax.legend(fontsize=8)
     return fig
@@ -179,13 +217,13 @@ def plot_heatmap(df, px: str, py: str, metric: str = "err",
     return fig
 
 
-def plot_err_hist(df, ax=None):
+def plot_err_hist(df, ax=None, unit: str = "m", factor: float = 1.0):
     if ax is None:
         fig, ax = plt.subplots(figsize=(5.5, 4))
     else:
         fig = ax.figure
-    errs = df["err"].dropna()
+    errs = df["err"].dropna() * factor
     ax.hist(errs, bins=30)
-    ax.set_xlabel("定位误差 (m)")
+    ax.set_xlabel(f"定位误差 ({unit})")
     ax.set_ylabel("试验数")
     return fig
