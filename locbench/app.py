@@ -21,7 +21,7 @@ from locbench.plots import (DIST_ROWS, METRIC_LABELS, PARAM_LABELS,
                             SUMMARY_LABELS, display_table, plot_err_hist,
                             plot_layout, plot_metric_vs_param, unit_labels)
 from locbench.sweep import sweep
-from locbench.synth import (corners_layout, coplanar_layout, grid_sources,
+from locbench.synth import (corners_layout, grid_sources, parse_layout,
                             random_layout, random_sources)
 
 st.set_page_config(page_title="locbench", page_icon="\U0001F3AF",
@@ -36,17 +36,39 @@ with st.sidebar:
     disp_unit = st.radio("距离单位", ["mm", "m"], horizontal=True)
     factor = 1e3 if disp_unit == "mm" else 1.0
     st.header("场景（合成）")
-    kind_label = st.radio(
-        "台阵布置",
-        ["试样顶点（8 传感器）", "三维随机布置", "共面二维布置（z=0 平面）"])
-    kind = ("corners" if kind_label.startswith("试样")
-            else "random-3d" if kind_label.startswith("三维随机")
-            else "coplanar-2d")
+    dim_label = st.radio("维度", ["三维", "二维"])
+    is_3d = dim_label == "三维"
+    place_label = st.radio("传感器布置", ["顶点", "随机", "自定义"])
     lx_mm = st.number_input("试样尺寸 x (mm)", 10.0, 2000.0, 100.0, 10.0)
     ly_mm = st.number_input("试样尺寸 y (mm)", 10.0, 2000.0, 100.0, 10.0)
-    lz_mm = st.number_input("试样尺寸 z (mm)", 10.0, 2000.0, 200.0, 10.0)
+    lz_mm = (st.number_input("试样尺寸 z (mm)", 10.0, 2000.0, 200.0, 10.0)
+             if is_3d else 0.0)
     lx, ly, lz = lx_mm * 1e-3, ly_mm * 1e-3, lz_mm * 1e-3     # -> m
-    n_sensors = 8 if kind == "corners" else st.slider("传感器数", 4, 32, 8)
+    kind = f"{'3d' if is_3d else '2d'}-" + {"顶点": "corners",
+                                            "随机": "random",
+                                            "自定义": "custom"}[place_label]
+    custom_key = None
+    if place_label == "顶点":
+        n_sensors = 8 if is_3d else 4
+    elif place_label == "随机":
+        n_sensors = st.slider("传感器数", 4, 32, 8)
+    else:
+        default_txt = ("0,0,0\n100,0,0\n0,100,0\n100,100,0\n50,50,100"
+                       if is_3d else "0,0\n100,0\n0,100\n100,100")
+        custom_txt = st.text_area(
+            "传感器坐标（每行一个，逗号分隔）", default_txt,
+            key=f"custom_layout_{is_3d}", height=140,
+            help=f"每行一个传感器：{'x,y,z' if is_3d else 'x,y'}，逗号分隔；"
+                 f"单位与显示单位一致（当前 {disp_unit}）；支持 # 注释行")
+        try:
+            custom = parse_layout(custom_txt,
+                                  n_components=3 if is_3d else 2,
+                                  to_m=1.0 / factor)
+        except ValueError as exc:
+            st.error(f"传感器坐标有误：{exc}")
+            st.stop()
+        n_sensors = len(custom)
+        custom_key = tuple(sorted(custom.items()))
     source_mode = st.radio("震源布置", ["随机震源", "网格震源（xyz 间距）"])
     if source_mode.startswith("随机"):
         n_sources = st.slider("震源数", 1, 50, 10)
@@ -54,10 +76,8 @@ with st.sidebar:
     else:
         spacing_mm = st.number_input("网格间距 (mm)", 5.0, 500.0, 50.0, 5.0)
         n_sources = 0
-        spans = {"x": lx, "y": ly,
-                 "z": 0.0 if kind == "coplanar-2d" else lz}
         counts = [max(1, int(round(s / (spacing_mm * 1e-3))))
-                  for s in spans.values()]
+                  for s in (lx, ly, lz)]
         st.caption(f"格数 ≈ {'×'.join(map(str, counts))} = "
                    f"{counts[0] * counts[1] * counts[2]} 个震源"
                    f"（格心布源，不含边界）")
@@ -78,29 +98,43 @@ with st.sidebar:
     damping = st.checkbox("LM 阻尼", True)
     est_v = st.checkbox("联合反演速度", False)
 
-SCENARIO_KEY = ("scenario", kind, n_sensors, lx, ly, lz, source_mode,
-                n_sources, spacing_mm * 1e-3, repeats,
+SCENARIO_KEY = ("scenario", kind, n_sensors, lx, ly, lz, custom_key,
+                source_mode, n_sources, spacing_mm * 1e-3, repeats,
                 seed, sigma_us * 1e-6, outlier_p, outlier_us * 1e-6, drop_p,
                 v_true)
 PARAMS = dict(velocity=v_used, grid_size=grid_size, margin=margin,
               damping=damping, estimate_velocity=est_v)
 
 
+def locator_kwargs(scenario_key, params, exclude=None):
+    """Locator constructor kwargs: user params plus mode='2d' for 2-D
+    layouts (pure 2-D sensor coordinates need no fixed axis)."""
+    kw = dict(params)
+    if exclude:
+        kw.pop(exclude, None)          # a swept param must not repeat
+    if scenario_key[1].startswith("2d"):
+        kw.update(mode="2d")
+    return kw
+
+
 @st.cache_data(show_spinner="生成合成场景…")
 def make_scenario(scenario_key):
-    (_, kind, n_sensors, lx, ly, lz, source_mode, n_sources, spacing,
-     repeats, seed, sigma, outlier_p, outlier_jitter, drop_p,
+    (_, kind, n_sensors, lx, ly, lz, custom_key, source_mode, n_sources,
+     spacing, repeats, seed, sigma, outlier_p, outlier_jitter, drop_p,
      v_true) = scenario_key
-    if kind == "corners":
-        sensors = corners_layout(size=(lx, ly, lz))
-    elif kind == "random-3d":
-        sensors = random_layout(n_sensors, extent=(lx, ly, lz),
-                                min_spacing=0.05 * min(lx, ly, lz),
-                                seed=seed)
+    dim3, place = kind.split("-", 1)
+    if place == "corners":
+        sensors = (corners_layout(size=(lx, ly, lz)) if dim3 == "3d"
+                   else corners_layout(size=(lx, ly)))
+    elif place == "random":
+        sensors = (random_layout(n_sensors, extent=(lx, ly, lz),
+                                 min_spacing=0.05 * min(lx, ly, lz),
+                                 seed=seed) if dim3 == "3d" else
+                   random_layout(n_sensors, extent=(lx, ly),
+                                 min_spacing=0.05 * min(lx, ly),
+                                 seed=seed))
     else:
-        sensors = coplanar_layout(n_sensors, extent=(lx, ly),
-                                  min_spacing=0.05 * min(lx, ly),
-                                  seed=seed)
+        sensors = dict(custom_key)
     if source_mode.startswith("网格"):
         sources = grid_sources(sensors, spacing=spacing)
     else:
@@ -114,9 +148,7 @@ def make_scenario(scenario_key):
 @st.cache_data(show_spinner="定位试验运行中…")
 def run_trials_cached(scenario_key, params):
     sc = make_scenario(scenario_key)
-    kw = dict(params)
-    if scenario_key[1].startswith("coplanar"):
-        kw.update(mode="2d", fixed_coords={"z": 0.0})
+    kw = locator_kwargs(scenario_key, params)
     df = run_trials(GeigerLocator(sc.sensors, **kw), sc)
     return df
 
@@ -179,12 +211,9 @@ with tab_sweep:
         @st.cache_data(show_spinner="扫描运行中…（磁盘缓存）")
         def do_sweep(scenario_key, params, param, vals):
             sc = make_scenario(scenario_key)
-            kw = dict(params)
-            kw.pop(param, None)          # swept param must not repeat
-            if scenario_key[1].startswith("coplanar"):
-                kw.update(mode="2d", fixed_coords={"z": 0.0})
             return sweep(GeigerLocator, {param: vals}, sc,
-                         locator_kwargs=kw)
+                         locator_kwargs=locator_kwargs(scenario_key, params,
+                                                       exclude=param))
 
         df2 = do_sweep(SCENARIO_KEY, PARAMS, param, vals)
     else:
@@ -201,10 +230,8 @@ with tab_sweep:
         @st.cache_data(show_spinner="扫描运行中…")
         def do_scenario_sweep(scenario_key, params, param, vals):
             sc = make_scenario(scenario_key)
-            kw = dict(params)
-            if scenario_key[1].startswith("coplanar"):
-                kw.update(mode="2d", fixed_coords={"z": 0.0})
-            loc = GeigerLocator(sc.sensors, **kw)
+            loc = GeigerLocator(sc.sensors,
+                                **locator_kwargs(scenario_key, params))
             frames = []
             for v in vals:
                 d = run_trials(loc, replace(sc, **{param: v}))

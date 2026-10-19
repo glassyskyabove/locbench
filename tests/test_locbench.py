@@ -7,7 +7,47 @@ from aelib import GeigerLocator
 from locbench.evaluate import Scenario, run_trials, summarize
 from locbench.sweep import sweep
 from locbench.synth import (corners_layout, coplanar_layout, grid_sources,
-                            make_arrivals, random_layout, random_sources)
+                            make_arrivals, parse_layout, random_layout,
+                            random_sources)
+
+
+def test_parse_layout_custom_sensors():
+    """Custom layout text: one sensor per line, comma-separated, unit
+    conversion, comments/full-width commas tolerated, clear errors."""
+    txt = "# 台阵\n0,0\n100,0\n0,100\n100,100"
+    s = parse_layout(txt, n_components=2, to_m=1e-3)
+    assert len(s) == 4
+    assert np.allclose(s[1], (0.0, 0.0)) and np.allclose(s[4], (0.1, 0.1))
+    s2 = parse_layout("0，0，0\n50,50,50", n_components=3, to_m=1e-3)
+    assert np.allclose(s2[2], (0.05, 0.05, 0.05))
+    try:
+        parse_layout("1,2,3\n4,5", n_components=2)
+        raise AssertionError("wrong component count must raise")
+    except ValueError:
+        pass
+    try:
+        parse_layout("a,b\nc,d", n_components=2)
+        raise AssertionError("non-numeric row must raise")
+    except ValueError:
+        pass
+    # 2-D custom layout locates end-to-end (pure 2-D sensors, mode='2d')
+    sc = Scenario(sensors=s, sources=random_sources(3, s, seed=1),
+                  velocity=5300.0, sigma=1e-6, seed=2)
+    df = run_trials(GeigerLocator(s, velocity=5300.0, mode="2d"), sc)
+    assert df["err"].notna().all() and df["err"].median() < 0.01
+
+
+def test_corner_and_2d_layout_variants():
+    """2-D corners give 4 sensors of dimension 2; 2-D random layout is
+    pure 2-D and locates with mode='2d' (no fixed axis needed)."""
+    rect = corners_layout(size=(0.1, 0.1))
+    assert len(rect) == 4 and all(len(p) == 2 for p in rect.values())
+    lay = random_layout(6, extent=(0.1, 0.1), min_spacing=0.005, seed=3)
+    assert all(len(p) == 2 for p in lay.values())
+    sc = Scenario(sensors=lay, sources=random_sources(3, lay, seed=4),
+                  velocity=5300.0, sigma=1e-6, seed=5)
+    df = run_trials(GeigerLocator(lay, velocity=5300.0, mode="2d"), sc)
+    assert df["err"].notna().all() and df["err"].median() < 0.02
 
 
 def test_grid_sources_regular_coverage():

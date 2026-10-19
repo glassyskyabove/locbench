@@ -13,7 +13,33 @@ from typing import Dict, Optional, Tuple
 import numpy as np
 
 __all__ = ["corners_layout", "random_layout", "coplanar_layout",
-           "random_sources", "grid_sources", "make_arrivals"]
+           "random_sources", "grid_sources", "parse_layout", "make_arrivals"]
+
+
+def parse_layout(text: str, n_components: int = 3,
+                 to_m: float = 1.0) -> Dict[int, tuple]:
+    """Parse a free-form sensor layout: one sensor per line, coordinates
+    comma-separated (full-width commas and ';' tolerated), blank lines and
+    '#' comments skipped.  Values are multiplied by ``to_m`` (e.g. 1e-3
+    when entered in mm).  Keys are 1..n in input order; raises ValueError
+    (Chinese, UI-facing) with the offending line number on bad rows or
+    fewer than 2 sensors."""
+    sensors: Dict[int, tuple] = {}
+    for i, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip().replace("，", ",").replace(";", ",")
+        if not line or line.startswith("#"):
+            continue
+        try:
+            vals = [float(p) * to_m for p in line.split(",") if p.strip()]
+        except ValueError:
+            raise ValueError(f"第 {i} 行无法解析为数字：{raw!r}") from None
+        if len(vals) != n_components:
+            raise ValueError(f"第 {i} 行需要 {n_components} 个坐标分量，"
+                             f"得到 {len(vals)}：{raw!r}")
+        sensors[len(sensors) + 1] = tuple(vals)
+    if len(sensors) < 2:
+        raise ValueError("至少需要 2 个传感器（每行一个）")
+    return sensors
 
 
 def grid_sources(sensors: dict, spacing, interior: bool = True) -> np.ndarray:
