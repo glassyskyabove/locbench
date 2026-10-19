@@ -231,3 +231,9 @@ def test_display_unit_scaling():
     assert "定位误差 (mm)" in show.columns
     assert np.allclose(show["定位误差 (mm)"].dropna(),
                        df["err"].dropna() * 1e3)
+    # 时间单位换算：t0 误差 (s -> ms)
+    show2 = display_table(df, "m", 1.0, "ms", 1e3)
+    assert "发震时刻误差 (ms)" in show2.columns
+    assert "残差 RMS (ms)" in show2.columns
+    assert np.allclose(show2["发震时刻误差 (ms)"].dropna(),
+                       df["t0_err"].dropna() * 1e3)

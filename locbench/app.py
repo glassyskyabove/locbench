@@ -18,8 +18,9 @@ import streamlit as st
 from aelib import GeigerLocator
 from locbench.evaluate import Scenario, run_trials, summarize
 from locbench.plots import (DIST_ROWS, METRIC_LABELS, PARAM_LABELS,
-                            SUMMARY_LABELS, display_table, plot_err_hist,
-                            plot_layout, plot_metric_vs_param, unit_labels)
+                            SUMMARY_LABELS, TIME_ROWS, display_table,
+                            plot_err_hist, plot_layout,
+                            plot_metric_vs_param, unit_labels)
 from locbench.sweep import sweep
 from locbench.synth import (corners_layout, grid_sources, parse_layout,
                             random_int_layout, random_sources)
@@ -35,6 +36,8 @@ with st.sidebar:
     st.header("显示")
     disp_unit = st.radio("距离单位", ["mm", "m"], horizontal=True)
     factor = 1e3 if disp_unit == "mm" else 1.0
+    time_unit = st.radio("时间单位", ["ms", "s"], horizontal=True)
+    tfactor = 1e3 if time_unit == "ms" else 1.0
     st.header("场景（合成）")
     dim_label = st.radio("维度", ["三维", "二维"])
     is_3d = dim_label == "三维"
@@ -196,7 +199,8 @@ with tab_result:
     c[0].metric(f"定位误差中位 ({disp_unit})", f"{s.err_median * factor:.2f}")
     c[1].metric(f"误差 p95 ({disp_unit})", f"{s.err_p95 * factor:.2f}")
     c[2].metric("收敛率", f"{s.converged_rate * 100:.0f}%")
-    c[3].metric("残差 rms 中位 (µs)", f"{s.rms_median * 1e6:.2f}")
+    c[3].metric(f"残差 rms 中位 ({time_unit})",
+                f"{s.rms_median * tfactor:.3g}")
     c[4].metric("平均迭代", f"{s.iter_mean:.1f}")
     c[5].metric("平均耗时 (ms)", f"{s.runtime_ms_mean:.2f}")
     if s.failures:
@@ -216,13 +220,16 @@ with tab_result:
         st.pyplot(plot_err_hist(df, unit=disp_unit, factor=factor))
         st.subheader("汇总")
         s_show = s.copy()
-        for k in DIST_ROWS:
-            if pd.notna(s_show.get(k)):
-                s_show[k] = s_show[k] * factor
-        st.dataframe(s_show.rename(
-            unit_labels(SUMMARY_LABELS, DIST_ROWS, disp_unit)).to_frame("值"))
+        for rows, f in ((DIST_ROWS, factor), (TIME_ROWS, tfactor)):
+            for k in rows:
+                if pd.notna(s_show.get(k)):
+                    s_show[k] = s_show[k] * f
+        labels = unit_labels(SUMMARY_LABELS, DIST_ROWS, disp_unit, "(m)")
+        labels = unit_labels(labels, TIME_ROWS, time_unit, "(s)")
+        st.dataframe(s_show.rename(labels).to_frame("值"))
     with st.expander("逐试验表格"):
-        st.dataframe(display_table(df, disp_unit, factor))
+        st.dataframe(display_table(df, disp_unit, factor,
+                                   time_unit, tfactor))
 
 # ---------------------------------------------------------- tab 2: sweep
 with tab_sweep:
@@ -286,11 +293,14 @@ with tab_sweep:
     with c1:
         st.pyplot(plot_metric_vs_param(df2, param, metric=gcol, agg=agg,
                                        dist_unit=disp_unit,
-                                       dist_factor=factor))
+                                       dist_factor=factor,
+                                       time_unit=time_unit,
+                                       time_factor=tfactor))
     with c2:
         st.pyplot(plot_metric_vs_param(df2, param, metric="runtime_ms"))
     with st.expander("扫描结果表"):
-        st.dataframe(display_table(df2, disp_unit, factor))
+        st.dataframe(display_table(df2, disp_unit, factor,
+                                   time_unit, tfactor))
 
 
 def main():

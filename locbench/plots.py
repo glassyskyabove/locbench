@@ -13,34 +13,41 @@ from .evaluate import TRIAL_COLS
 
 __all__ = ["plot_layout", "plot_metric_vs_param", "plot_heatmap",
            "plot_err_hist", "display_table", "unit_labels",
-           "DIST_COLS", "DIST_ROWS",
+           "DIST_COLS", "DIST_ROWS", "TIME_COLS", "TIME_ROWS",
            "METRIC_LABELS", "PARAM_LABELS", "SUMMARY_LABELS", "TRIAL_LABELS"]
 
 #: 距离列/行（米 -> 显示单位缩放，单位注记同步替换）
 DIST_COLS = ("err", "dx", "dy", "dz", "stderr_pos")
 DIST_ROWS = ("err_median", "err_mean", "err_p95")
+#: 时间列/行（秒 -> 显示单位缩放，'(s)' 注记同步替换）
+TIME_COLS = ("t0_err", "rms", "sigma")
+TIME_ROWS = ("t0_err_median", "rms_median")
 
 
-def unit_labels(labels, keys, unit):
-    """把 labels 中 keys 的 '(m)' 注记替换为显示单位（unit == 'm' 时原样）。"""
-    if unit == "m":
+def unit_labels(labels, keys, unit, marker="(m)"):
+    """把 labels 中 keys 的 marker 注记（如 '(m)'/'(s)'）替换为显示单位
+    （unit 与 marker 的基准单位一致时原样返回）。"""
+    if unit == marker[1:-1]:
         return labels
-    return {k: (v.replace("(m)", f"({unit})") if k in keys else v)
+    return {k: (v.replace(marker, f"({unit})") if k in keys else v)
             for k, v in labels.items()}
 
 
-def display_table(df, unit="m", factor=1.0):
-    """表格中文显示：列名映射、距离列换算成显示单位（米 x factor）、
-    收敛标记转'是/否'。仅显示层，不改动原 DataFrame。"""
+def display_table(df, unit="m", factor=1.0, time_unit="s", time_factor=1.0):
+    """表格中文显示：列名映射、距离/时间列各自换算成显示单位（米 x
+    factor、秒 x time_factor）、收敛标记转'是/否'。仅显示层，不改动原
+    DataFrame。"""
     show = df.drop(columns=["coords"], errors="ignore").copy()
-    if factor != 1.0:
-        for c in DIST_COLS:
-            if c in show:
-                show[c] = show[c] * factor
+    for cols, f in ((DIST_COLS, factor), (TIME_COLS, time_factor)):
+        if f != 1.0:
+            for c in cols:
+                if c in show:
+                    show[c] = show[c] * f
     if "converged" in show:
         show = show.replace({"converged": {True: "是", False: "否"}})
     labels = unit_labels({**TRIAL_LABELS, **METRIC_LABELS, **PARAM_LABELS},
-                         DIST_COLS, unit)
+                         DIST_COLS, unit, "(m)")
+    labels = unit_labels(labels, TIME_COLS, time_unit, "(s)")
     return show.rename(columns=labels)
 
 #: 中文显示名（试用指标 / 扫描参数；未列出的键原样显示）
@@ -158,10 +165,11 @@ def _scatter(ax, pts, **kw):
 
 def plot_metric_vs_param(df, param: str, metric: str = "err",
                          agg: str = "median", ax=None,
-                         dist_unit: str = "m", dist_factor: float = 1.0):
+                         dist_unit: str = "m", dist_factor: float = 1.0,
+                         time_unit: str = "s", time_factor: float = 1.0):
     """指标随单个扫描参数的变化：中位线 + 四分位带。其余扫描参数
-    （不属于试用指标的列）各画一条线。距离类指标（err）按显示单位
-    缩放并标注。"""
+    （不属于试用指标的列）各画一条线。距离类指标（err）与时间类指标
+    （t0_err/rms/sigma）按各自显示单位缩放并标注。"""
     agg_cn = {"median": "中位", "mean": "均值"}.get(agg, agg)
     if ax is None:
         fig, ax = plt.subplots(figsize=(6.5, 4))
@@ -172,6 +180,8 @@ def plot_metric_vs_param(df, param: str, metric: str = "err",
     sub = df.dropna(subset=[metric])
     if metric == "err":
         sub = sub.assign(err=sub["err"] * dist_factor)
+    elif metric in TIME_COLS:
+        sub = sub.assign(**{metric: sub[metric] * time_factor})
     for key, grp in (sub.groupby(others) if others
                      else [(None, sub)]):
         g = grp.groupby(param)[metric]
@@ -184,8 +194,12 @@ def plot_metric_vs_param(df, param: str, metric: str = "err",
         ax.plot(x, center.values, marker="o", label=label)
         ax.fill_between(x, lo.values, hi.values, alpha=0.2)
     ax.set_xlabel(PARAM_LABELS.get(param, param))
-    ylab = (f"定位误差 ({dist_unit})" if metric == "err"
-            else METRIC_LABELS.get(metric, metric))
+    if metric == "err":
+        ylab = f"定位误差 ({dist_unit})"
+    else:
+        ylab = METRIC_LABELS.get(metric, metric)
+        if metric in TIME_COLS:
+            ylab = ylab.replace("(s)", f"({time_unit})")
     ax.set_ylabel(f"{ylab}（{agg_cn}）")
     if others:
         ax.legend(fontsize=8)
