@@ -124,7 +124,9 @@ with st.sidebar:
     seed = st.number_input("随机种子", 0, 1_000_000, key="seed")
     st.subheader("到时误差模拟")
     sigma_us = st.slider("拾取噪声 σ (µs)", 0.0, 50.0, 1.0, 0.5)
-    drop_p = st.slider("丢道比例", 0.0, 0.5, 0.0, 0.01)
+    drop_p = st.slider("丢道概率", 0.0, 0.5, 0.1, 0.01,
+                       help="每个事件对每个通道独立抽一个 [0,1) 均匀随机数，"
+                            "小于该值则此通道在此事件中被丢弃")
     v_true = st.number_input("真实波速 (m/s)", 100.0, 10000.0, 5300.0, 100.0)
 
     st.header("定位器（Geiger）")

@@ -31,7 +31,8 @@ class Scenario:
     sources: np.ndarray            # (n, dim) known truth
     velocity: float                # true velocity used to synthesize
     sigma: float = 0.0             # pick noise, s
-    drop_p: float = 0.0            # dropped-channel fraction
+    drop_p: float = 0.0            # per-channel drop probability, judged
+                                    # independently for every event
     seed: int = 0
     repeats: int = 1
 

@@ -173,7 +173,9 @@ def make_arrivals(sensors: dict, source, velocity: float, t0: float = 0.0,
     errors.
 
     - ``sigma``: Gaussian picking noise per pick (s)
-    - ``drop_p``: fraction of channels with no pick at all
+    - ``drop_p``: per-channel drop probability -- each channel draws an
+      independent uniform [0,1) random number per call (event) and is
+      dropped when it falls below ``drop_p``
 
     Returns ``({channel: t}, info)``; ``info`` lists the dropped
     channels."""
