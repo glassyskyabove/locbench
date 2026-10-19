@@ -112,12 +112,16 @@ with st.sidebar:
         return "\n".join(lines)
 
     if place_label == "几何特征":
-        feats = (["横边", "纵边", "垂边", "侧面", "正面", "顶面"] if is_3d
-                 else ["横边", "纵边"])
-        default_on = {"横边", "纵边", "垂边"} if is_3d else {"横边", "纵边"}
-        fcols = st.columns(len(feats))
-        on = {f: fcols[i].checkbox(f, value=f in default_on)
-              for i, f in enumerate(feats)}
+        edge_names = ["横边", "纵边", "垂边"][: 3 if is_3d else 2]
+        face_names = ["侧面", "正面", "顶面"] if is_3d else []
+        default_on = set(edge_names)
+        ecols = st.columns(len(edge_names))          # 边一行
+        on = {f: ecols[i].checkbox(f, value=f in default_on)
+              for i, f in enumerate(edge_names)}
+        if face_names:
+            fcols = st.columns(len(face_names))      # 面一行
+            on.update({f: fcols[i].checkbox(f, value=f in default_on)
+                       for i, f in enumerate(face_names)})
         edge_n = {}
         for f in ("横边", "纵边", "垂边"):
             if on.get(f):
