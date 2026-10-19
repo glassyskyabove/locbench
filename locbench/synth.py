@@ -12,9 +12,9 @@ from typing import Dict, Optional, Tuple
 
 import numpy as np
 
-__all__ = ["corners_layout", "random_layout", "random_int_layout",
-           "coplanar_layout", "random_sources", "grid_sources",
-           "parse_layout", "make_arrivals"]
+__all__ = ["corners_layout", "feature_layout", "random_layout",
+           "random_int_layout", "coplanar_layout", "random_sources",
+           "grid_sources", "parse_layout", "make_arrivals"]
 
 
 def random_int_layout(n_sensors: int, extent=(100, 100, 200),
@@ -69,21 +69,26 @@ def parse_layout(text: str, n_components: int = 3,
     return sensors
 
 
-def grid_sources(sensors: dict, spacing, interior: bool = True) -> np.ndarray:
-    """Regular grid of source points over the sensors' bounding box.
+def grid_sources(sensors: dict = None, spacing=1, interior: bool = True,
+                 box=None) -> np.ndarray:
+    """Regular grid of source points over a box.
+
+    The box defaults to the sensors' bounding box; pass ``box=(lo, hi)``
+    (per-axis sequences, e.g. the specimen box) to decouple the source
+    region from the sensor positions -- a partial array (one edge, say)
+    must not shrink the source grid to its own bounding box.
 
     ``spacing`` is the target cell size (one value for all axes or a
     per-axis sequence); cells per axis = ``round(span / spacing)`` (>= 1).
     ``interior=True`` (default) takes cell CENTRES -- strictly inside the
     box, so a grid point never coincides with a corner sensor;
     ``interior=False`` includes the faces (``n+1`` points per axis).
-    Constant axes (coplanar layout) give a single layer.  Returns
-    ``(n_points, dim)``; deterministic (no seed).
+    Constant axes give a single layer.  Returns ``(n_points, dim)``;
+    deterministic (no seed).
     """
-    P = np.stack([np.asarray(p, dtype=float) for p in sensors.values()])
-    lo, hi = P.min(axis=0), P.max(axis=0)
+    lo, hi = _box_bounds(sensors, box)
     span = hi - lo
-    dim = P.shape[1]
+    dim = lo.size
     sp = np.broadcast_to(np.asarray(spacing, dtype=float), (dim,))
     n = np.maximum(1, np.round(span / sp).astype(int))
     axes = []
@@ -94,6 +99,18 @@ def grid_sources(sensors: dict, spacing, interior: bool = True) -> np.ndarray:
             axes.append(np.linspace(lo[i], hi[i], n[i] + 1))
     return np.stack(np.meshgrid(*axes, indexing="ij"),
                     axis=-1).reshape(-1, dim)
+
+
+def _box_bounds(sensors, box):
+    """(lo, hi) float arrays: explicit ``box`` or the sensors' bbox."""
+    if box is not None:
+        lo = np.asarray(box[0], dtype=float)
+        hi = np.asarray(box[1], dtype=float)
+        if lo.shape != hi.shape or lo.size < 2:
+            raise ValueError("box 需要 (lo, hi) 两个等长序列（每轴一个值）")
+        return lo, hi
+    P = np.stack([np.asarray(p, dtype=float) for p in sensors.values()])
+    return P.min(axis=0), P.max(axis=0)
 
 
 def corners_layout(size=(0.1, 0.1, 0.2), origin=(0.0, 0.0, 0.0)) -> Dict[int, tuple]:
@@ -109,6 +126,54 @@ def corners_layout(size=(0.1, 0.1, 0.2), origin=(0.0, 0.0, 0.0)) -> Dict[int, tu
     pts = [origin + np.array(s) * size
            for s in itertools.product((0.0, 1.0), repeat=dim)]
     return {i + 1: tuple(p) for i, p in enumerate(pts)}
+
+
+#: 边特征 -> 平行的轴向；边取过原点的那条
+EDGE_FEATURES = {"横边": 0, "纵边": 1, "垂边": 2}
+#: 面特征 -> 法向轴向；侧面/正面取过原点面，顶面取 z=Lz 面
+FACE_FEATURES = {"侧面": 0, "正面": 1, "顶面": 2}
+
+
+def feature_layout(size, edges: dict = None, faces=()) -> Dict[int, tuple]:
+    """Sensors on named geometric features of the box ``[0, size]``.
+
+    ``edges`` maps an edge feature name (``横边``/``纵边``/``垂边`` = the
+    edge through the ORIGIN parallel to x/y/z) to the number of equally
+    spaced points on it: ``n`` sensors at ``k/(n+1) · span``, k = 1..n --
+    the interior division points, endpoints (box corners) excluded, so
+    edges never duplicate a corner.  ``faces`` lists face feature names
+    (``侧面``/``正面``/``顶面`` = the face with x/y/z normal); each
+    contributes ONE sensor at the face centre: 侧面 -> x=0, 正面 ->
+    y=0, 顶面 -> z=Lz (the top face).  Points come out edges first
+    (x, y, z order), then face centres; keys are 1..n.  A 2-entry
+    ``size`` allows only 横边/纵边 (no z features).
+    """
+    size = np.asarray(size, dtype=float)
+    dim = size.size
+    if dim not in (2, 3):
+        raise ValueError("size 需要 2 或 3 个分量")
+    pts: list = []
+    for name, ax in EDGE_FEATURES.items():
+        n = (edges or {}).get(name)
+        if n is None:
+            continue
+        n = int(n)
+        if n < 1:
+            raise ValueError(f"{name}等分点数至少为 1")
+        if dim == 2 and ax == 2:
+            raise ValueError("二维布置没有垂边（z 方向的边）")
+        for k in range(1, n + 1):            # k/(n+1): 内部等分点
+            p = np.zeros(dim)
+            p[ax] = k * size[ax] / (n + 1)
+            pts.append(tuple(p))
+    for name in faces or ():
+        ax = FACE_FEATURES[name]              # KeyError = unknown name
+        if dim == 2 and ax == 2:
+            raise ValueError("二维布置没有顶面（z 方向的面）")
+        c = size / 2.0
+        c[ax] = size[ax] if ax == 2 else 0.0  # 顶面取 z=Lz，其余取过原点面
+        pts.append(tuple(c))
+    return {i + 1: p for i, p in enumerate(pts)}
 
 
 def _rng(rng, seed):
@@ -153,17 +218,19 @@ def coplanar_layout(n_sensors: int, extent=(1.0, 1.0), plane: str = "z",
             for ch, p in flat.items()}
 
 
-def random_sources(n: int, sensors: dict, margin: float = 0.0,
-                   seed=None, rng=None) -> np.ndarray:
-    """Random source points, shape (n, dim), uniform in the sensors'
-    bounding box.  ``margin`` > 0 expands the box (sources outside the
-    array -- extrapolation stress), < 0 shrinks it (well-conditioned)."""
+def random_sources(n: int, sensors: dict = None, margin: float = 0.0,
+                   box=None, seed=None, rng=None) -> np.ndarray:
+    """Random source points, shape (n, dim), uniform in a box.
+
+    The box defaults to the sensors' bounding box; ``box=(lo, hi)``
+    overrides it (e.g. the specimen box for a partial sensor array).
+    ``margin`` > 0 expands the box (sources outside the array --
+    extrapolation stress), < 0 shrinks it (well-conditioned)."""
     rng = _rng(rng, seed)
-    P = np.stack([np.asarray(p, dtype=float) for p in sensors.values()])
-    lo, hi = P.min(axis=0), P.max(axis=0)
+    lo, hi = _box_bounds(sensors, box)
     span = np.where(hi - lo > 0, hi - lo, 1.0)
     lo, hi = lo - margin * span, hi + margin * span
-    return rng.uniform(lo, hi, size=(n, P.shape[1]))
+    return rng.uniform(lo, hi, size=(n, lo.size))
 
 
 def make_arrivals(sensors: dict, source, velocity: float, t0: float = 0.0,

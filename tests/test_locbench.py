@@ -6,9 +6,9 @@ from aelib import GeigerLocator
 
 from locbench.evaluate import Scenario, run_trials, summarize
 from locbench.sweep import sweep
-from locbench.synth import (corners_layout, coplanar_layout, grid_sources,
-                            make_arrivals, parse_layout, random_int_layout,
-                            random_layout, random_sources)
+from locbench.synth import (corners_layout, coplanar_layout, feature_layout,
+                            grid_sources, make_arrivals, parse_layout,
+                            random_int_layout, random_layout, random_sources)
 
 
 def test_random_int_layout_mm_grid():
@@ -208,6 +208,49 @@ def test_sweep_runs_and_caches(tmp_path):
     df2 = sweep(GeigerLocator, grid, sc, cache_dir=str(tmp_path),
                 locator_kwargs={"velocity": 5300.0})
     pd.testing.assert_frame_equal(df, df2)   # cache hit, identical table
+
+
+def test_feature_layout_edges_and_faces():
+    """Geometric-feature layouts: edge points are the INTERIOR division
+    points (k/(n+1)·span, box corners never duplicated), face features
+    give one sensor at the face centre (侧面 x=0 / 正面 y=0 / 顶面 z=Lz),
+    edges precede faces, 2-D rejects z features; sources decouple from
+    the sensor bbox via box= (a single-edge array must not collapse the
+    source grid to a line)."""
+    lay = feature_layout((0.1, 0.1, 0.2), edges={"横边": 4}, faces=["顶面"])
+    assert len(lay) == 5
+    edge = list(lay.values())[:4]
+    assert np.allclose([p[0] for p in edge], [0.02, 0.04, 0.06, 0.08])
+    assert all(p[1] == 0.0 and p[2] == 0.0 for p in edge)  # 过原点、平行 x
+    assert np.allclose(lay[5], (0.05, 0.05, 0.2))          # 顶面中心
+    two = feature_layout((0.1, 0.1, 0.2), faces=["侧面", "正面"])
+    assert np.allclose(two[1], (0.0, 0.05, 0.1))           # x=0 面中心
+    assert np.allclose(two[2], (0.05, 0.0, 0.1))           # y=0 面中心
+    rect = feature_layout((0.1, 0.1), edges={"横边": 2, "纵边": 3})
+    assert len(rect) == 5 and all(len(p) == 2 for p in rect.values())
+    for kwargs in ({"edges": {"垂边": 2}}, {"faces": ["顶面"]}):
+        try:
+            feature_layout((0.1, 0.1), **kwargs)
+            raise AssertionError("2-D must reject z features")
+        except ValueError:
+            pass
+    # 端到端：三条过原点轴边各 4 点（默认几何特征场景），震源布满试样盒
+    sensors = feature_layout((0.1, 0.1, 0.2),
+                             edges={"横边": 4, "纵边": 4, "垂边": 4})
+    assert len(sensors) == 12
+    src = grid_sources(spacing=(0.02, 0.02, 0.04),
+                       box=((0, 0, 0), (0.1, 0.1, 0.2)))
+    assert src.shape == (5 * 5 * 5, 3)          # 不塌缩到边台阵的包围盒
+    rs = random_sources(50, box=((0, 0, 0), (0.1, 0.1, 0.2)), seed=3)
+    assert rs.shape == (50, 3) and (rs >= 0).all()
+    assert (rs <= np.array([0.1, 0.1, 0.2])).all()
+    sc = Scenario(sensors=sensors, sources=src[::21], velocity=5300.0,
+                  sigma=1e-6, seed=1)
+    df = run_trials(GeigerLocator(sensors, velocity=5300.0), sc)
+    assert df["err"].notna().all()              # 轴边台阵可定位（弱几何）
+    # 兼容：不给 box 时仍用传感器包围盒
+    assert grid_sources(sensors, spacing=0.05).shape[1] == 3
+    assert random_sources(5, sensors, seed=1).shape == (5, 3)
 
 
 def test_display_unit_scaling():

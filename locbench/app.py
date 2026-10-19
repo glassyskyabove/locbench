@@ -22,7 +22,7 @@ from locbench.plots import (DIST_ROWS, METRIC_LABELS, PARAM_LABELS,
                             plot_err_hist, plot_layout,
                             plot_metric_vs_param, unit_labels)
 from locbench.sweep import sweep
-from locbench.synth import (corners_layout, grid_sources, parse_layout,
+from locbench.synth import (feature_layout, grid_sources, parse_layout,
                             random_int_layout, random_sources)
 
 st.set_page_config(page_title="locbench", page_icon="\U0001F3AF",
@@ -93,8 +93,8 @@ with st.sidebar:
                              on_change=lambda: _unset_auto("size_z"))
              if is_3d else 0.0)
     lx, ly, lz = lx_in * u_sz, ly_in * u_sz, lz_in * u_sz     # -> m
-    place_label = st.radio("传感器布置", ["顶点", "随机", "自定义"])
-    kind = f"{'3d' if is_3d else '2d'}-" + {"顶点": "corners",
+    place_label = st.radio("传感器布置", ["几何特征", "随机", "自定义"])
+    kind = f"{'3d' if is_3d else '2d'}-" + {"几何特征": "feature",
                                             "随机": "random",
                                             "自定义": "custom"}[place_label]
     n_wanted = st.slider("传感器数", 4, 32, 8) if place_label == "随机" else 0
@@ -111,10 +111,27 @@ with st.sidebar:
             lines.append(",".join(cells))
         return "\n".join(lines)
 
-    if place_label == "顶点":
-        ext = (lx, ly, lz) if is_3d else (lx, ly)
+    if place_label == "几何特征":
+        feats = (["横边", "纵边", "垂边", "侧面", "正面", "顶面"] if is_3d
+                 else ["横边", "纵边"])
+        default_on = {"横边", "纵边", "垂边"} if is_3d else {"横边", "纵边"}
+        fcols = st.columns(len(feats))
+        on = {f: fcols[i].checkbox(f, value=f in default_on)
+              for i, f in enumerate(feats)}
+        edge_n = {}
+        for f in ("横边", "纵边", "垂边"):
+            if on.get(f):
+                edge_n[f] = st.number_input(
+                    f"{f}等分点数", 1, 32, 4,
+                    help="将该边 n+1 等分，传感器放在 n 个等分点上"
+                         "（不含两端端点，故不会与其他边的角点重复）")
+        faces = [f for f in on if on[f] and f not in edge_n]
         st.session_state["layout_text"] = _fmt_layout(
-            corners_layout(size=ext).values())     # 正象限 [0, size]
+            feature_layout((lx, ly, lz) if is_3d else (lx, ly),
+                           edges=edge_n, faces=faces).values())
+        st.caption("横边/纵边/垂边 = 过原点、与 x/y/z 平行的边；"
+                   "侧面 = x=0 面、正面 = y=0 面（以法向命名）；"
+                   "顶面 = z=Lz 面。选中的面各布 1 个传感器于面心")
     elif place_label == "随机":
         ext_mm = ((int(round(lx * 1e3)), int(round(ly * 1e3)),
                    int(round(lz * 1e3))) if is_3d else
@@ -134,8 +151,8 @@ with st.sidebar:
         "传感器坐标（每行一个，逗号分隔）", key="layout_text", height=140,
         disabled=place_label != "自定义",
         help=f"每行一个传感器：{'x,y,z' if is_3d else 'x,y'}；单位与显示单位"
-             f"一致（当前 {disp_unit}）；支持 # 注释行。顶点/随机模式显示生成"
-             f"的坐标（不可编辑），切到\"自定义\"可在此基础上修改")
+             f"一致（当前 {disp_unit}）；支持 # 注释行。几何特征/随机模式显示"
+             f"生成的坐标（不可编辑），切到\"自定义\"可在此基础上修改")
     try:
         custom = parse_layout(custom_txt, n_components=3 if is_3d else 2,
                               to_m=1.0 / factor)
@@ -143,6 +160,11 @@ with st.sidebar:
         st.error(f"传感器坐标有误：{exc}")
         st.stop()
     n_sensors = len(custom)
+    min_needed = 4 if is_3d else 3            # x,y[,z],t0 -> 最低通道数
+    if n_sensors < min_needed:
+        st.warning(f"当前仅 {n_sensors} 个传感器，{'三维' if is_3d else '二维'}"
+                   f"定位至少需要 {min_needed} 个通道，请多选几项几何特征或"
+                   f"增加等分点数")
     custom_key = tuple(sorted(custom.items()))
     source_mode = st.radio("震源布置", ["随机震源", "网格震源"], index=1)
     if source_mode == "随机震源":
@@ -252,11 +274,15 @@ def make_scenario(scenario_key):
     (_, kind, n_sensors, lx, ly, lz, custom_key, source_mode, n_sources,
      spacing, repeats, seed, sigma, drop_p, fs, v_true) = scenario_key
     sensors = dict(custom_key)          # the text box is the single source
+    dim = 3 if kind.startswith("3d") else 2
+    # 震源域 = 试样盒 [0, size]，与传感器包围盒解耦（部分布置如单边
+    # 台阵的包围盒会退化成线/点，不能拿来布源）
+    box = (((0.0, 0.0, 0.0), (lx, ly, lz)) if dim == 3
+           else ((0.0, 0.0), (lx, ly)))
     if source_mode.startswith("网格"):
-        dim = len(next(iter(sensors.values())))
-        sources = grid_sources(sensors, spacing=tuple(spacing[:dim]))
+        sources = grid_sources(spacing=tuple(spacing[:dim]), box=box)
     else:
-        sources = random_sources(n_sources, sensors, seed=seed + 1)
+        sources = random_sources(n_sources, box=box, seed=seed + 1)
     return Scenario(sensors=sensors, sources=sources, velocity=v_true,
                     sigma=sigma, drop_p=drop_p, fs=fs,
                     seed=seed + 2, repeats=repeats)
