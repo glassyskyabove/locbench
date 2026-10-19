@@ -173,6 +173,16 @@ with st.sidebar:
     v_used = st.number_input("采用波速 (m/s)", 100.0, 10000.0, 5300.0, 100.0)
     grid_size = st.slider("grid_size", 4, 64, 24)
     margin = st.slider("margin", 0.0, 0.5, 0.05, 0.01)
+    max_iter = st.number_input("max_iter（迭代上限）", 5, 500, 60, 5,
+                               help="外层迭代次数上限，两种模式共用；"
+                                    "跑满且末步 RMS 改善仍大于 tol 则标记"
+                                    "未收敛")
+    tol = st.number_input("收敛判据 tol (s)", 0.0, 1e-3, 1e-12, 1e-13,
+                          format="%.1e",
+                          help="相邻两次迭代加权残差 RMS 的改善量小于 tol "
+                               "即判定收敛（1e-12 s = 1 ps，实质是\"不再"
+                               "改善\"）；0 = 关闭该判据，仅靠停滞判据或"
+                               "max_iter 终止")
     damping = st.checkbox("LM 阻尼", True)
     est_v = st.checkbox("联合反演速度", False)
 
@@ -181,6 +191,7 @@ SCENARIO_KEY = ("scenario", kind, n_sensors, lx, ly, lz, custom_key,
                 tuple(d * u_sz for d in grid_d_in), repeats,
                 seed, sigma_s, drop_p, fs_hz, v_true)
 PARAMS = dict(velocity=v_used, grid_size=grid_size, margin=margin,
+              max_iter=int(max_iter), tol=tol,
               damping=damping, estimate_velocity=est_v)
 
 
@@ -271,14 +282,18 @@ with tab_sweep:
     metric = st.selectbox("评估指标", list(METRIC_LABELS),
                           format_func=METRIC_LABELS.get)
     if target.startswith("定位器"):
-        param = st.selectbox("参数", ["grid_size", "margin", "velocity"],
+        param = st.selectbox("参数",
+                             ["grid_size", "margin", "velocity", "max_iter",
+                              "tol"],
                              format_func=PARAM_LABELS.get)
         raw = st.text_input("取值（逗号分隔）",
                             {"grid_size": "4, 8, 16, 24, 48",
                              "margin": "0.0, 0.05, 0.1, 0.2",
-                             "velocity": "4000, 4650, 5300, 5950, 6600"}[param])
+                             "velocity": "4000, 4650, 5300, 5950, 6600",
+                             "max_iter": "5, 10, 20, 60, 150",
+                             "tol": "0, 1e-13, 1e-12, 1e-11, 1e-10"}[param])
         vals = [float(v) for v in raw.replace(";", ",").split(",") if v.strip()]
-        if param == "grid_size":
+        if param in ("grid_size", "max_iter"):
             vals = [int(v) for v in vals]
 
         @st.cache_data(show_spinner="扫描运行中…（磁盘缓存）")

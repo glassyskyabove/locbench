@@ -64,6 +64,8 @@ PARAM_LABELS = {
     "grid_size": "grid_size（网格点数/轴）",
     "margin": "margin（包围盒外扩比例）",
     "velocity": "波速 (m/s)",
+    "max_iter": "max_iter（迭代上限）",
+    "tol": "tol（收敛判据 s）",
     "sigma": "到时误差 σ (s)",
     "fs": "采样率 (Hz)",
     "drop_p": "丢道概率",
