@@ -118,10 +118,11 @@ with st.sidebar:
         ecols = st.columns(len(edge_names))          # 边一行
         on = {f: ecols[i].checkbox(f, value=False)
               for i, f in enumerate(edge_names)}
-        fcols = st.columns(1 + len(face_names))      # 面 + 顶点一行
-        for i, f in enumerate(face_names):
-            on[f] = fcols[i].checkbox(f, value=False)
-        on["顶点"] = fcols[-1].checkbox(
+        if face_names:
+            fcols = st.columns(len(face_names))      # 面一行
+            for i, f in enumerate(face_names):
+                on[f] = fcols[i].checkbox(f, value=False)
+        on["顶点"] = st.checkbox(                     # 顶点另起一行
             "顶点", value=True,
             help=f"全部{'8' if is_3d else '4'}个角点各布 1 个传感器"
                  f"（经典试样监测布置）")
