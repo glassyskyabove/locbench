@@ -1,7 +1,7 @@
 """locbench dashboard -- locator testing / parameter tuning.
 
 ALL data shown is simulated: synthetic array + synthetic sources + modelled
-pick noise, outliers and channel dropout.  Run with
+pick noise and channel dropout.  Run with
 
     streamlit run locbench/app.py        # or the `locbench` console script
 """
@@ -27,7 +27,7 @@ from locbench.synth import (corners_layout, grid_sources, parse_layout,
 st.set_page_config(page_title="locbench", page_icon="\U0001F3AF",
                    layout="wide")
 st.title("locbench — 定位算法测试 / 调参")
-st.caption("所有数据均为数值模拟：合成台阵 + 合成震源 + 模拟拾取噪声 / 粗差 / 丢道。"
+st.caption("所有数据均为数值模拟：合成台阵 + 合成震源 + 模拟拾取噪声 / 丢道。"
            "不含任何实测数据。")
 
 # ------------------------------------------------------------- sidebar
@@ -124,8 +124,6 @@ with st.sidebar:
     seed = st.number_input("随机种子", 0, 1_000_000, key="seed")
     st.subheader("到时误差模拟")
     sigma_us = st.slider("拾取噪声 σ (µs)", 0.0, 50.0, 1.0, 0.5)
-    outlier_p = st.slider("粗差比例", 0.0, 0.3, 0.0, 0.01)
-    outlier_us = st.slider("粗差幅度 (µs)", 1.0, 500.0, 50.0)
     drop_p = st.slider("丢道比例", 0.0, 0.5, 0.0, 0.01)
     v_true = st.number_input("真实波速 (m/s)", 100.0, 10000.0, 5300.0, 100.0)
 
@@ -140,8 +138,7 @@ with st.sidebar:
 SCENARIO_KEY = ("scenario", kind, n_sensors, lx, ly, lz, custom_key,
                 source_mode, n_sources,
                 tuple(d * 1e-3 for d in grid_spacing_mm), repeats,
-                seed, sigma_us * 1e-6, outlier_p, outlier_us * 1e-6, drop_p,
-                v_true)
+                seed, sigma_us * 1e-6, drop_p, v_true)
 PARAMS = dict(velocity=v_used, grid_size=grid_size, margin=margin,
               damping=damping, estimate_velocity=est_v)
 
@@ -160,8 +157,7 @@ def locator_kwargs(scenario_key, params, exclude=None):
 @st.cache_data(show_spinner="生成合成场景…")
 def make_scenario(scenario_key):
     (_, kind, n_sensors, lx, ly, lz, custom_key, source_mode, n_sources,
-     spacing, repeats, seed, sigma, outlier_p, outlier_jitter, drop_p,
-     v_true) = scenario_key
+     spacing, repeats, seed, sigma, drop_p, v_true) = scenario_key
     sensors = dict(custom_key)          # the text box is the single source
     if source_mode.startswith("网格"):
         dim = len(next(iter(sensors.values())))
@@ -169,8 +165,7 @@ def make_scenario(scenario_key):
     else:
         sources = random_sources(n_sources, sensors, seed=seed + 1)
     return Scenario(sensors=sensors, sources=sources, velocity=v_true,
-                    sigma=sigma, outlier_p=outlier_p,
-                    outlier_jitter=outlier_jitter, drop_p=drop_p,
+                    sigma=sigma, drop_p=drop_p,
                     seed=seed + 2, repeats=repeats)
 
 
@@ -248,14 +243,11 @@ with tab_sweep:
                          locator_kwargs=locator_kwargs(scenario_key, params,
                                                        exclude=param))
     else:
-        param = st.selectbox("场景参数",
-                             ["sigma", "outlier_p", "drop_p", "outlier_jitter"],
+        param = st.selectbox("场景参数", ["sigma", "drop_p"],
                              format_func=PARAM_LABELS.get)
         raw = st.text_input("取值（逗号分隔）",
                             {"sigma": "0, 1e-6, 2e-6, 5e-6, 1e-5",
-                             "outlier_p": "0, 0.05, 0.1, 0.2",
-                             "drop_p": "0, 0.1, 0.2, 0.3",
-                             "outlier_jitter": "1e-5, 5e-5, 1e-4, 5e-4"}[param])
+                             "drop_p": "0, 0.1, 0.2, 0.3"}[param])
         vals = [float(v) for v in raw.replace(";", ",").split(",") if v.strip()]
 
         @st.cache_data(show_spinner="扫描运行中…")

@@ -3,7 +3,7 @@
 对声发射震源定位算法（aelib 的 `GeigerLocator` 及任何注册到
 `LOCATORS` 的定位器）做**合成数据**测试与参数调优的实验层。
 **本库不含任何实测数据**：台阵、震源、到时全部由数值模拟生成
-（高斯拾取噪声 / 粗差 / 丢道均可注入），真值已知，误差可直接统计。
+（高斯拾取噪声 / 丢道均可注入），真值已知，误差可直接统计。
 
 依赖方向：`locbench → aelib`（永不反向）。算法本体在
 [aelib](../aelib) 中维护；本库只做评估与可视化。
@@ -23,13 +23,13 @@ pip install -e "E:\GitHub_codes\locbench[app]"   # 可视化界面（streamlit�
 locbench                                  # 或 streamlit run locbench/app.py
 ```
 
-侧栏配置合成场景：维度（三维/二维）× 传感器布置（顶点/随机/自定义文本，每行一个传感器、坐标逗号分隔、单位随显示单位）；默认三维 100×100×200 mm 试样 8 顶点；震源可随机或按 xyz 间距网格布点（覆盖图）；噪声 σ、粗差、丢道、真实波速
+侧栏配置合成场景：维度（三维/二维）× 传感器布置（顶点/随机/自定义文本，每行一个传感器、坐标逗号分隔、单位随显示单位）；默认三维 100×100×200 mm 试样 8 顶点；震源可随机或按 xyz 间距网格布点（覆盖图）；噪声 σ、丢道、真实波速
 与定位器参数（grid_size/margin/LM 阻尼/联合反演速度/采用波速），两个页签：
 
 - **场景与结果**：定位误差中位/p95、收敛率、残差 rms、迭代数、耗时；
   台阵+真值+定位结果的 3D/2D 图（误差向量可视化）、误差分布直方图；
 - **参数敏感性**：对定位器参数（grid_size/margin/velocity）或场景参数
-  （σ/粗差/丢道）做单参数扫描，画误差曲线（中位线 + 四分位带）与耗时曲线。
+  （σ/丢道）做单参数扫描，画误差曲线（中位线 + 四分位带）与耗时曲线。
 
 ## 脚本用法
 
@@ -57,7 +57,7 @@ df2 = sweep(GeigerLocator, {"grid_size": [8, 16, 24, 48],
 ```
 locbench/
 ├── synth.py       合成数据：random_layout / coplanar_layout /
-│                  random_sources / make_arrivals（噪声+粗差+丢道）
+│                  random_sources / make_arrivals（噪声+丢道）
 ├── evaluate.py    Scenario / run_trials（逐试验指标表）/ summarize
 ├── sweep.py       参数网格扫描 + 磁盘缓存（results/）
 ├── plots.py       matplotlib 图：布局+误差向量 / 指标-参数曲线 / 热力图

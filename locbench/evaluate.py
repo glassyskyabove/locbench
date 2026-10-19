@@ -24,15 +24,13 @@ class Scenario:
 
     One trial = one source x one noise realisation: exact arrivals from
     ``sensors``/``source``/``velocity``, degraded by ``sigma`` /
-    ``outlier_p`` / ``drop_p`` and located.  ``repeats`` noise seeds per
+    ``drop_p`` and located.  ``repeats`` noise seeds per
     source give error statistics.
     """
     sensors: dict
     sources: np.ndarray            # (n, dim) known truth
     velocity: float                # true velocity used to synthesize
     sigma: float = 0.0             # pick noise, s
-    outlier_p: float = 0.0         # gross-error fraction
-    outlier_jitter: float = 50e-6  # gross-error magnitude, s
     drop_p: float = 0.0            # dropped-channel fraction
     seed: int = 0
     repeats: int = 1
@@ -56,9 +54,7 @@ def run_trials(locator, scenario: Scenario) -> pd.DataFrame:
             t0_true = float(rng.uniform(0.0, 1.0))
             arrivals, _ = make_arrivals(
                 scenario.sensors, src, scenario.velocity, t0=t0_true,
-                sigma=scenario.sigma, outlier_p=scenario.outlier_p,
-                outlier_jitter=scenario.outlier_jitter,
-                drop_p=scenario.drop_p, rng=rng)
+                sigma=scenario.sigma, drop_p=scenario.drop_p, rng=rng)
             row = dict(source=i, repeat=rep, n_picks=len(arrivals))
             t_start = time.perf_counter()
             try:

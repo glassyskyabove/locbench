@@ -135,11 +135,11 @@ def test_noisy_trials_error_scales():
     assert df["t0_err"].median() < 5e-6
 
 
-def test_outliers_dropout_and_coplanar_still_run():
+def test_dropout_and_coplanar_still_run():
     sensors = random_layout(10, extent=(1.0, 1.0, 1.0), seed=5)
     sources = random_sources(4, sensors, seed=6)
     sc = Scenario(sensors=sensors, sources=sources, velocity=5300.0,
-                  sigma=1e-6, outlier_p=0.2, drop_p=0.2, repeats=2, seed=7)
+                  sigma=1e-6, drop_p=0.2, repeats=2, seed=7)
     df = run_trials(GeigerLocator(sensors, velocity=5300.0), sc)
     assert len(df) == 8 and df["n_picks"].max() <= 10
     assert df["err"].notna().any()          # at least some trials survive
@@ -161,13 +161,12 @@ def test_make_arrivals_degradation_model():
     sensors = random_layout(6, extent=(1.0, 1.0, 1.0), seed=11)
     src = np.array([0.1, -0.1, 0.05])
     arr, info = make_arrivals(sensors, src, velocity=5000.0, t0=1.0,
-                              drop_p=0.5, outlier_p=1.0,
-                              outlier_jitter=1e-3, seed=12)
-    assert len(arr) <= 6 and len(arr) >= 0
-    assert set(info["dropped"]) | set(arr) <= set(sensors)
+                              drop_p=0.5, seed=12)
+    assert set(arr) <= set(sensors)
+    assert set(info["dropped"]) | set(arr) == set(sensors)
     exact, _ = make_arrivals(sensors, src, velocity=5000.0, t0=1.0)
-    for ch in arr:                          # kept picks are polluted but bounded
-        assert abs(arr[ch] - exact[ch]) <= 1e-3 + 1e-9
+    for ch in arr:                          # sigma=0 -> kept picks exact
+        assert arr[ch] == exact[ch]
 
 
 def test_sweep_runs_and_caches(tmp_path):

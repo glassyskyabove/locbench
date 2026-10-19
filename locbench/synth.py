@@ -167,19 +167,16 @@ def random_sources(n: int, sensors: dict, margin: float = 0.0,
 
 
 def make_arrivals(sensors: dict, source, velocity: float, t0: float = 0.0,
-                  sigma: float = 0.0, outlier_p: float = 0.0,
-                  outlier_jitter: float = 50e-6, drop_p: float = 0.0,
+                  sigma: float = 0.0, drop_p: float = 0.0,
                   seed=None, rng=None) -> Tuple[dict, dict]:
     """Exact arrivals ``t_i = t0 + |s_i - x| / v`` plus simulated pick
     errors.
 
     - ``sigma``: Gaussian picking noise per pick (s)
-    - ``outlier_p``: fraction of picks hit by a gross error, uniform in
-      +/- ``outlier_jitter`` (cycle slips / false triggers)
     - ``drop_p``: fraction of channels with no pick at all
 
-    Returns ``({channel: t}, info)``; ``info`` lists the dropped and
-    outlier channels so robustness metrics can separate the cases."""
+    Returns ``({channel: t}, info)``; ``info`` lists the dropped
+    channels."""
     rng = _rng(rng, seed)
     chs = list(sensors)
     S = np.stack([np.asarray(sensors[c], dtype=float) for c in chs])
@@ -187,10 +184,7 @@ def make_arrivals(sensors: dict, source, velocity: float, t0: float = 0.0,
     t = t0 + d / velocity
     if sigma:
         t = t + rng.normal(0.0, sigma, t.size)
-    is_out = rng.random(t.size) < outlier_p
-    t = t + is_out * rng.uniform(-1.0, 1.0, t.size) * outlier_jitter
     keep = rng.random(t.size) >= drop_p
     arrivals = {c: float(ti) for c, ti, k in zip(chs, t, keep) if k}
-    info = {"dropped": [c for c, k in zip(chs, keep) if not k],
-            "outliers": [c for c, k, o in zip(chs, keep, is_out) if k and o]}
+    info = {"dropped": [c for c, k in zip(chs, keep) if not k]}
     return arrivals, info
