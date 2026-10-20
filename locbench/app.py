@@ -552,13 +552,16 @@ if __name__ == "__main__":
 
         left, right = st.columns([3, 2])
         with left:
-            st.subheader("定位结果（红=定位，绿=真值，黑=传感器）")
+            st.subheader("定位结果（红=定位，绿=真值，黑=传感器"
+                         + ("，蓝面=两介质界面" if is_comp else "") + "）")
             sc = make_scenario(SCENARIO_KEY)
             located = np.full_like(np.asarray(sc.sources, dtype=float), np.nan)
             for r in df[df["err"].notna()].itertuples():
                 located[int(r.source)] = r.coords
             fig = plot_layout(sc.sensors, sc.sources, located,
-                              unit=disp_unit, factor=factor)
+                              unit=disp_unit, factor=factor,
+                              interface=((0, refr_box[1][0], (lx, ly, lz))
+                                         if is_comp else None))
             st.pyplot(fig)
             close_fig(fig)
         with right:

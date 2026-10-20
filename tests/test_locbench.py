@@ -676,3 +676,30 @@ def test_dashboard_composite_flow():
          if "定位算法" in r.label).set_value("Geiger")
     at.run()
     assert not at.exception and not at.error
+
+
+def test_plot_layout_draws_interface_plane():
+    """plot_layout(interface=...)：组合体界面以半透明面画进 3-D 布置图
+    （surface 计入 collections，先画使传感器/震源叠在其上）；不传则不画。
+    2-D 画虚线。"""
+    import matplotlib
+    matplotlib.use("Agg")
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+    from locbench.plots import plot_layout
+    sensors = composite_layout((0.1, 0.1, 0.1), interface_frac=0.5,
+                               per_face=1, seed=1)
+    n_plain = len(plot_layout(sensors).axes[0].collections)
+    fig = plot_layout(sensors, interface=(0, 0.05, (0.1, 0.1, 0.1)))
+    ax3 = fig.axes[0]
+    assert len(ax3.collections) == n_plain + 1      # +1 = 界面 surface
+    surf = [c for c in ax3.collections if isinstance(c, Poly3DCollection)]
+    assert len(surf) == 1
+    verts = np.asarray(surf[0]._faces)              # 界面顶点全在 x=pos
+    assert verts.shape[1] == 4                      # 一个四边形面片
+    assert np.allclose(verts[..., 0], 0.05)
+    # 2-D：界面为虚线
+    rect = corners_layout(size=(0.1, 0.1))
+    fig2 = plot_layout(rect, interface=(0, 0.04, (0.1, 0.1)))
+    lines = fig2.axes[0].lines
+    assert any(len(l.get_xdata()) == 2 and
+               np.allclose(l.get_xdata(), 0.04) for l in lines)

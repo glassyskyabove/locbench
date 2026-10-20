@@ -126,10 +126,15 @@ _cjk_font()
 
 
 def plot_layout(sensors: dict, sources=None, located=None,
-                unit: str = "m", factor: float = 1.0):
+                unit: str = "m", factor: float = 1.0, interface=None):
     """传感器阵列布置 + 真值/定位震源；真值->定位的线段即误差向量。2-D/3-D
     跟随传感器维度。坐标按显示单位缩放（数据本身是米，``factor``
-    米->显示单位，如 mm 取 1e3），轴标注带单位。"""
+    米->显示单位，如 mm 取 1e3），轴标注带单位。
+
+    ``interface = (axis, pos, extents)`` 在 ``axis`` 向坐标 ``pos``（米）
+    处画两介质分界（组合体场景）：3-D 为覆盖 ``extents``（试样尺寸，米）
+    其余两轴范围的半透明蓝面，2-D 为虚线；None 不画。界面先画，传感器/
+    震源叠在其上。"""
     P = np.stack([np.asarray(p, dtype=float) for p in sensors.values()]) * factor
     dim = P.shape[1]
     # 纯 OO Figure：不碰 pyplot 的全局 figure 注册表。streamlit 每个会话
@@ -138,10 +143,31 @@ def plot_layout(sensors: dict, sources=None, located=None,
     fig = Figure(figsize=(6, 5))
     if dim == 3:
         ax = fig.add_subplot(projection="3d")
+    else:
+        ax = fig.add_subplot()
+    if interface is not None:
+        ax_i, pos, ext = interface
+        pos_d = pos * factor
+        if dim == 3:
+            others = [a for a in range(3) if a != ax_i]
+            g1 = np.array([0.0, ext[others[0]]]) * factor
+            g2 = np.array([0.0, ext[others[1]]]) * factor
+            A, B = np.meshgrid(g1, g2)
+            const = np.full_like(A, pos_d)
+            xx, yy, zz = [(const if a == ax_i else (A if a == others[0] else B))
+                          for a in range(3)]
+            ax.plot_surface(xx, yy, zz, alpha=0.12, color="tab:blue",
+                            shade=False, linewidth=0)
+        elif ax_i == 0:
+            ax.plot([pos_d, pos_d], [0.0, ext[1] * factor], "--",
+                    c="tab:blue", lw=1.2, alpha=0.7)
+        else:
+            ax.plot([0.0, ext[0] * factor], [pos_d, pos_d], "--",
+                    c="tab:blue", lw=1.2, alpha=0.7)
+    if dim == 3:
         ax.scatter(P[:, 0], P[:, 1], P[:, 2], marker="s", c="k",
                    label="传感器", s=28)
     else:
-        ax = fig.add_subplot()
         ax.scatter(P[:, 0], P[:, 1], marker="s", c="k", label="传感器", s=28)
         ax.set_aspect("equal")
     # 视野由传感器阵列与真值震源决定：个别发散到远处的定位解不参与取限
