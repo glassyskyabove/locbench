@@ -8,14 +8,18 @@
 依赖方向：`locbench → aelib`（永不反向）。算法本体在
 [aelib](../aelib) 中维护；本库只做评估与可视化。
 
-## 安装（先装 aelib）
+## 安装（前提：环境已装 aelib）
+
+aelib 为私有库、不经 pip 分发——**安装本库的环境必须已装有 aelib**
+（`aelib>=0.9.39`；缺失时安装会以"找不到 aelib"停止，即提示先装 aelib）：
 
 ```bash
-conda activate ae
-pip install -e E:\GitHub_codes\aelib        # 算法库（若未装）
-pip install -e E:\GitHub_codes\locbench     # 本库
-pip install -e "E:\GitHub_codes\locbench[app]"   # 可视化界面（streamlit）
+pip install git+https://github.com/glassyskyabove/locbench.git
+# 本地开发改为： pip install -e E:\GitHub_codes\locbench
 ```
+
+依赖（numpy/pandas/matplotlib/streamlit）自动安装；装完即有 `locbench`
+命令。
 
 ## 可视化界面
 
@@ -23,13 +27,24 @@ pip install -e "E:\GitHub_codes\locbench[app]"   # 可视化界面（streamlit�
 locbench                                  # 或 streamlit run locbench/app.py
 ```
 
-侧栏配置合成场景：维度（三维/二维）× 传感器布置（顶点/随机/自定义文本，每行一个传感器、坐标逗号分隔、单位随显示单位）；默认三维 100×100×200 mm 试样 8 顶点（尺寸/间距单位可选 mm或m、到时误差单位 µs或ms、采样率单位 MHz或kHz，默认 mm/µs/MHz）；震源可随机或按 xyz 间距网格布点（覆盖图）；到时误差 σ、采样率、丢道、真实波速
-与定位器参数（grid_size/margin/LM 阻尼/联合反演速度/采用波速），两个页签：
+侧栏配置合成场景：维度（三维/二维）× 传感器布置——**几何特征**（横边/
+纵边/垂边=与 x/y/z 平行的全部边各布等分点，侧面/正面/顶面=以 x/y/z 为
+法向的两面各取面心，顶点=全部角点，可任意组合）、随机整数坐标、或自定
+义文本（每行一个传感器、坐标逗号分隔、单位随显示单位）；默认三维
+100×100×200 mm 试样、几何特征勾选顶点（8 角点）。尺寸/间距单位 mm|m、
+到时误差单位 µs|ms、采样率单位 MHz|kHz（默认 mm/µs/MHz）；震源可随机
+或按 xyz 间距网格布点（覆盖试样盒，与传感器包围盒解耦）；到时误差 σ、
+采样率、丢道、真实波速与定位器参数（采用波速/初值点个数/外延比例/迭代
+上限/收敛判据 tol（默认 1/fs，随采样率联动）/LM 阻尼/联合反演速度），
+两个页签：
 
-- **场景与结果**：定位误差中位/p95、收敛率、残差 rms、迭代数、耗时；
-  台阵+真值+定位结果的 3D/2D 图（误差向量可视化）、误差分布直方图；
-- **参数敏感性**：对定位器参数（grid_size/margin/velocity）或场景参数
-  （σ/丢道）做单参数扫描，画误差曲线（中位线 + 四分位带）与耗时曲线。
+- **场景与结果**：定位误差中位/均值/p95、收敛率、残差 rms、迭代数、
+  耗时；台阵+真值+定位结果的等轴 3D/2D 图（误差向量可视化）、误差
+  分布直方图；扫描取值支持等间距简写（如 `2600:8000:300`）；
+- **参数敏感性**：对定位器参数（grid_size/margin/velocity/max_iter/
+  tol）或场景参数（σ/采样率/丢道）做单参数扫描，画误差曲线（中位线 +
+  四分位带）与耗时曲线；tol 用对数轴；结果按哈希落盘缓存（7 天自动
+  清理）。
 
 ## 脚本用法
 
