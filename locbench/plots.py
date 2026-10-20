@@ -126,7 +126,7 @@ _cjk_font()
 
 def plot_layout(sensors: dict, sources=None, located=None,
                 unit: str = "m", factor: float = 1.0):
-    """台阵布置 + 真值/定位震源；真值->定位的线段即误差向量。2-D/3-D
+    """传感器阵列布置 + 真值/定位震源；真值->定位的线段即误差向量。2-D/3-D
     跟随传感器维度。坐标按显示单位缩放（数据本身是米，``factor``
     米->显示单位，如 mm 取 1e3），轴标注带单位。"""
     P = np.stack([np.asarray(p, dtype=float) for p in sensors.values()]) * factor
@@ -143,7 +143,7 @@ def plot_layout(sensors: dict, sources=None, located=None,
         ax = fig.add_subplot()
         ax.scatter(P[:, 0], P[:, 1], marker="s", c="k", label="传感器", s=28)
         ax.set_aspect("equal")
-    # 视野由台阵与真值震源决定：个别发散到远处的定位解不参与取限
+    # 视野由传感器阵列与真值震源决定：个别发散到远处的定位解不参与取限
     # ——否则整幅图被拉爆（等轴盒子被压成薄片、固定大小的标记显得
     # 巨大、长刻度数字溢出画布）。matplotlib 三维不按坐标限裁剪散点，
     # 超视野的发散解会被投影画进图内，因此先算好视野再过滤再画。

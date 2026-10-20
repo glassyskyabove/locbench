@@ -34,7 +34,7 @@ def test_random_int_layout_mm_grid():
 def test_parse_layout_custom_sensors():
     """Custom layout text: one sensor per line, comma-separated, unit
     conversion, comments/full-width commas tolerated, clear errors."""
-    txt = "# 台阵\n0,0\n100,0\n0,100\n100,100"
+    txt = "# 传感器阵列\n0,0\n100,0\n0,100\n100,100"
     s = parse_layout(txt, n_components=2, to_m=1e-3)
     assert len(s) == 4
     assert np.allclose(s[1], (0.0, 0.0)) and np.allclose(s[4], (0.1, 0.1))
@@ -247,19 +247,19 @@ def test_feature_layout_edges_and_faces():
             raise AssertionError("2-D must reject z features")
         except ValueError:
             pass
-    # 端到端：横边框架台阵（4 条 x 向边各 3 点），震源布满试样盒
+    # 端到端：横边框架传感器阵列（4 条 x 向边各 3 点），震源布满试样盒
     sensors = feature_layout((0.1, 0.1, 0.2), edges={"横边": 3})
     assert len(sensors) == 12
     src = grid_sources(spacing=(0.02, 0.02, 0.04),
                        box=((0, 0, 0), (0.1, 0.1, 0.2)))
-    assert src.shape == (5 * 5 * 5, 3)          # 不塌缩到边台阵的包围盒
+    assert src.shape == (5 * 5 * 5, 3)          # 不塌缩到边传感器阵列的包围盒
     rs = random_sources(50, box=((0, 0, 0), (0.1, 0.1, 0.2)), seed=3)
     assert rs.shape == (50, 3) and (rs >= 0).all()
     assert (rs <= np.array([0.1, 0.1, 0.2])).all()
     sc = Scenario(sensors=sensors, sources=src[::21], velocity=5300.0,
                   sigma=1e-6, seed=1)
     df = run_trials(GeigerLocator(sensors, velocity=5300.0), sc)
-    assert df["err"].notna().all()              # 边框架台阵可定位
+    assert df["err"].notna().all()              # 边框架传感器阵列可定位
     # 兼容：不给 box 时仍用传感器包围盒
     assert grid_sources(sensors, spacing=0.05).shape[1] == 3
     assert random_sources(5, sensors, seed=1).shape == (5, 3)
