@@ -4,19 +4,20 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "locbench"
-version = "0.2.17"
+version = "0.2.18"
 description = "Locator testing / parameter tuning on purely synthetic data (bench layer over aelib)"
 requires-python = ">=3.9"
 dependencies = [
     "numpy>=1.22",
     "pandas>=1.5",
     "matplotlib>=3.5",
-    # not on PyPI: install aelib first (pip install -e E:\GitHub_codes\aelib)
-    "aelib>=0.9.34",
+    "streamlit>=1.66",
+    # aelib 不在 PyPI 上：从 GitHub 直接拉取。aelib 仓库当前为私有，
+    # 匿名安装前需先公开它，或先自行安装 aelib（pip install -e 路径）
+    "aelib @ git+https://github.com/glassyskyabove/aelib.git",
 ]
 
 [project.optional-dependencies]
-app = ["streamlit>=1.30"]
 test = ["pytest>=7"]
 
 [project.scripts]
