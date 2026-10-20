@@ -353,14 +353,15 @@ if __name__ == "__main__":
             st.error(f"定位无法进行：{exc}")
             st.stop()
         s = summarize(df)
-        c = st.columns(6)
+        c = st.columns(7)
         c[0].metric(f"定位误差中位 ({disp_unit})", f"{s.err_median * factor:.2f}")
-        c[1].metric(f"误差 p95 ({disp_unit})", f"{s.err_p95 * factor:.2f}")
-        c[2].metric("收敛率", f"{s.converged_rate * 100:.0f}%")
-        c[3].metric(f"残差 rms 中位 ({time_unit})",
+        c[1].metric(f"定位误差均值 ({disp_unit})", f"{s.err_mean * factor:.2f}")
+        c[2].metric(f"误差 p95 ({disp_unit})", f"{s.err_p95 * factor:.2f}")
+        c[3].metric("收敛率", f"{s.converged_rate * 100:.0f}%")
+        c[4].metric(f"残差 rms 中位 ({time_unit})",
                     f"{s.rms_median * tfactor:.3g}")
-        c[4].metric("平均迭代", f"{s.iter_mean:.1f}")
-        c[5].metric("平均耗时 (ms)", f"{s.runtime_ms_mean:.2f}")
+        c[5].metric("平均迭代", f"{s.iter_mean:.1f}")
+        c[6].metric("平均耗时 (ms)", f"{s.runtime_ms_mean:.2f}")
         if s.failures:
             st.warning(f"{s.failures} 个试验定位失败（通道过少等），详见表格 failure 列。")
 
