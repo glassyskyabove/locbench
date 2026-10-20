@@ -53,10 +53,9 @@ if __name__ == "__main__":
                                 plot_metric_vs_param, unit_labels)
     from locbench.plots import close_fig
     from locbench.sweep import parse_values, sweep
-    from locbench.synth import (composite_layout, feature_layout,
-                                grid_sources, head_layout, interface_plane,
-                                parse_layout, random_int_layout,
-                                random_sources)
+    from locbench.synth import (feature_layout, grid_sources, head_layout,
+                                interface_plane, parse_layout,
+                                random_int_layout, random_sources)
 
     st.set_page_config(page_title="locbench", page_icon="\U0001F3AF",
                        layout="wide")
@@ -131,13 +130,13 @@ if __name__ == "__main__":
             "到时正演", ["均质（直线传播）", "折射（试样 + 压头）",
                          "组合体（两介质）"],
             help="合成到时用的传播模型。均质：t = d/v，单一波速直线传播；"
-                 "折射（Rui et al. 2024）：试样盒内波速 v₁，压头已知波速 "
-                 "v₂，波在界面按 Snell 折射——传感器须装在压头上"
-                 "（布置选\"压头\"）；组合体：试样沿 x 向分成两块（界面比例"
-                 "可调），块 A 波速 v₁、块 B 已知波速 v₂，传感器贴两块表面"
-                 "（布置选\"组合体\"），震源可在任一块内。非均质模型下 "
-                 "Geiger 有随 v₁/v₂ 偏离 1 增大的系统偏差，折射定位器则"
-                 "联合反演 v₁ 并自动判别震源所在介质")
+                 "折射（Rui et al. 2024）：试样盒内波速 v₁、压头已知波速 "
+                 "v₂，波在盒面按 Snell 折射；组合体：试样内一个可任意取向"
+                 "的平面分界（方位/倾角/偏移可调），一侧波速 v₁、另一侧"
+                 "已知波速 v₂，震源可在任一介质。两个非均质模型下传感器"
+                 "都可用任意布置（几何特征/随机/自定义/压头），介质按位置"
+                 "自动归属；Geiger 有随 v₁/v₂ 偏离 1 增大的系统偏差，折射"
+                 "定位器则联合反演 v₁ 并自动判别震源所在介质")
         is_refr = not model_label.startswith("均质")
         is_comp = model_label.startswith("组合体")
         # 介质 1 边界（米）：盒面折射模式 = 整试样盒；组合体 = 任意取向的
@@ -145,9 +144,10 @@ if __name__ == "__main__":
         refr_box = ((0.0, 0.0, 0.0), (lx, ly, lz))
         iface = None
         if is_comp:
-            st.caption("两介质以一个可任意取向的平面分界（结果图中的蓝色面）；"
-                       "传感器贴试样外表面，落在界面哪一侧就属于哪个介质"
-                       "——布置与界面解耦，移动/倾斜界面无需重新布点")
+            st.caption("两介质以一个可任意取向的平面分界（结果图中的蓝色"
+                       "面）；传感器用任意布置均可，落在界面哪一侧就属于"
+                       "哪个介质——布置与界面解耦，移动/倾斜界面无需重新"
+                       "布点")
             phi_i = st.slider(
                 "界面法向方位角（°）", 0, 359, 0, 5,
                 help="法向水平投影的方向：0=+x，90=+y，180=−x，270=−y；"
@@ -156,31 +156,32 @@ if __name__ == "__main__":
                 "界面法向倾角（°）", -89, 89, 0, 1,
                 help="法向自水平面抬起的角度（正 = 朝 +z 抬）；±89°≈水平"
                      "界面（法向≈±z），0°=竖直界面")
+            off_max = 0.45 * min(lx_in, ly_in, lz_in)   # 任意取向都确保切过试样
+            o_step = 0.5 if sz_unit == "mm" else 0.0005
+            _auto_default("iface_off_in", 0.0)
             off_i = st.slider(
-                "界面位置偏移", -0.45, 0.45, 0.0, 0.05,
-                help="界面沿法向离开试样中心的比例（0=过试样中心），按"
-                     "试样沿法向的跨度折算")
+                f"界面偏移 ({sz_unit})", -off_max, off_max, key="iface_off_in",
+                step=o_step,
+                help="界面沿法向离开试样中心的距离（正 = 朝法向/介质 2 一侧"
+                     "平移）；范围为 ±0.45×最短边，保证界面始终切过试样") * u_sz
             iface = interface_plane((lx, ly, lz), phi_i, psi_i, off_i)
         # 定位算法单选框在侧栏更下方才创建，但用户改动后 session_state
         # 在本次重跑一开始就已更新——提前读它，布置选项就能跟随方法联动
         is_rp_now = str(st.session_state.get("loc_method", "Geiger")
                         ).startswith("折射")
         place_opts = ["几何特征", "随机", "自定义"]
-        if is_3d and not is_comp and (is_refr or is_rp_now):
+        if is_3d and (is_refr or is_rp_now):
             place_opts.append("压头（折射）")
-        if is_3d and (is_comp or is_rp_now):
-            place_opts.append("组合体（两介质）")
         place_label = st.radio("传感器布置", place_opts,
                                help=("压头（折射）＝试样盒六个面外各布若干"
-                                     "传感器（折射正演的经典布置）；组合体"
-                                     "（两介质）＝两块的外表面各布若干传感器"
-                                     "（介质 1/2 表面贴装）"
+                                     "传感器（折射/组合体正演都可用的盒外"
+                                     "布置）；其余布置与非均质模型自由组合"
+                                     "——介质按传感器位置自动归属"
                                      if (is_refr or is_rp_now) else None))
         kind = f"{'3d' if is_3d else '2d'}-" + {"几何特征": "feature",
                                                 "随机": "random",
                                                 "自定义": "custom",
-                                                "压头（折射）": "head",
-                                                "组合体（两介质）": "comp"}[place_label]
+                                                "压头（折射）": "head"}[place_label]
         n_wanted = st.slider("传感器数", 4, 32, 8) if place_label == "随机" else 0
 
         def _fmt_layout(m_pts):
@@ -259,18 +260,6 @@ if __name__ == "__main__":
                             offset=head_off_in * u_sz, seed=seed_gen).values())
             st.caption(f"压头布置 = 六个面（±x/±y/±z）各 {int(n_per_face)} 个"
                        f"传感器，共 {6 * int(n_per_face)} 个，全部在试样盒外")
-        elif place_label == "组合体（两介质）":
-            n_per_face_c = st.number_input(
-                "每个面传感器数", 1, 8, 2,
-                help="试样六个外表面各布 n 个传感器（面内随机位置），共 6n"
-                     "个；每个传感器落在界面哪一侧就属于哪个介质")
-            seed_gen = st.session_state.get("seed", 0)
-            st.session_state["layout_text"] = _fmt_layout(
-                composite_layout((lx, ly, lz), per_face=int(n_per_face_c),
-                                 seed=seed_gen).values())
-            st.caption(f"组合体布置 = 六个外表面 × {int(n_per_face_c)} 个，"
-                       f"共 {6 * int(n_per_face_c)} 个，贴试样表面"
-                       f"（介质归属由界面位置决定）")
         elif "layout_text" not in st.session_state:
             ex = ([(0, 0, 0), (100, 0, 0), (0, 100, 0), (100, 100, 0), (50, 50, 100)]
                   if is_3d else [(0, 0), (100, 0), (0, 100), (100, 100)])

@@ -516,10 +516,10 @@ def test_refraction_sweep_over_v1_init(tmp_path):
 def test_dashboard_refraction_method_needs_two_media():
     """AppTest 回归（两介质推广后语义）：(a) 只选折射定位器、布置仍是
     角点（正演保持均质）——角点传感器现在是合法的介质 1 直线射线传感器，
-    面板应当直接跑通而不是报错；\"压头（折射）/组合体（两介质）\"布置
-    选项此时就出现（不必先切正演模型）。(b) 自定义输入\"同时在两个轴向
-    上出界\"的传感器 -> 侧栏中文警告 + 结果区中文错误并停止，aelib 的
-    英文 ValueError 不外露。"""
+    面板应当直接跑通而不是报错；\"压头（折射）\"布置选项此时就出现
+    （不必先切正演模型；组合体场景无专属布置，共用全部布置）。
+    (b) 自定义输入\"同时在两个轴向上出界\"的传感器 -> 侧栏中文警告 +
+    结果区中文错误并停止，aelib 的英文 ValueError 不外露。"""
     import pytest
     pytest.importorskip("streamlit")
     from pathlib import Path
@@ -548,7 +548,8 @@ def test_dashboard_refraction_method_needs_two_media():
     assert not at.error
     place_opts = next(r for r in at.sidebar.radio
                       if "传感器布置" in r.label).options
-    assert "压头（折射）" in place_opts and "组合体（两介质）" in place_opts
+    assert "压头（折射）" in place_opts
+    assert "组合体（两介质）" not in place_opts   # 组合体共用全部布置
 
     # 按指引切到压头布置（正演仍为均质 = 折射法吃错模型的数据）：可运行
     next(r for r in at.sidebar.radio
@@ -596,17 +597,17 @@ def test_composite_layout_geometry():
             raise AssertionError("must reject bad args")
         except ValueError:
             pass
-    # 界面平面：方位/倾角球坐标法向 + 沿法向偏移
+    # 界面平面：方位/倾角球坐标法向 + 沿法向的长度偏移
     pt, n = interface_plane((0.1, 0.1, 0.1), phi_deg=0.0, psi_deg=0.0,
-                            offset_frac=0.0)
+                            offset=0.0)
     assert np.allclose(n, (1.0, 0.0, 0.0)) and np.allclose(pt, (0.05,) * 3)
     pt2, n2 = interface_plane((0.1, 0.1, 0.1), 90.0, 0.0, 0.0)
     assert np.allclose(n2, (0.0, 1.0, 0.0))                     # 方位 90°=+y
     pt3, n3 = interface_plane((0.1, 0.1, 0.1), 0.0, 89.0, 0.0)
     assert n3[2] > 0.999 and abs(n3[0]) < 0.02                  # ≈+z 水平界面
-    pt4, n4 = interface_plane((0.1, 0.1, 0.1), 0.0, 0.0, 0.2)   # 沿 +x 偏
+    pt4, n4 = interface_plane((0.1, 0.1, 0.1), 0.0, 0.0, 0.02)  # 沿 +x 平移 20mm
     assert np.allclose(n4, (1.0, 0.0, 0.0))
-    assert np.isclose(pt4[0], 0.05 + 0.2 * 0.1)                 # 0.2×跨度
+    assert np.isclose(pt4[0], 0.07) and np.isclose(pt4[1], 0.05)  # 纯长度偏移
     pt5, _ = interface_plane((0.1, 0.1, 0.1), 45.0, 0.0, 0.0)   # 45° 斜界
     assert np.isclose(pt5[0], pt5[1])
 
@@ -651,7 +652,7 @@ def test_tilted_interface_scenario_round_trip():
     for phi in (45.0, 90.0):
         sensors = composite_layout((0.1, 0.1, 0.1), per_face=2, seed=6)
         pt, n = interface_plane((0.1, 0.1, 0.1), phi_deg=phi, psi_deg=0.0,
-                                offset_frac=0.0)
+                                offset=0.0)
         n_arr = np.asarray(n)
         c = float(n_arr @ np.asarray(pt))
         S = np.asarray(list(sensors.values()))
@@ -688,8 +689,10 @@ def test_tilted_interface_scenario_round_trip():
 
 
 def test_dashboard_composite_flow():
-    """AppTest：组合体（两介质）正演 + 组合体布置 + 折射定位器的完整
-    流程可运行（无异常/无错误），切回 Geiger 在同一场景上也不报错。"""
+    """AppTest：组合体（两介质）正演 + 折射定位器的完整流程可运行，
+    传感器布置沿用默认的几何特征/顶点（组合体无专属布置——任意布置
+    共用，介质按位置归属）；界面偏移滑条是长度语义（mm）；切回 Geiger
+    在同一场景上也不报错。"""
     import pytest
     pytest.importorskip("streamlit")
     from pathlib import Path
@@ -708,8 +711,10 @@ def test_dashboard_composite_flow():
          if "到时正演" in r.label).set_value("组合体（两介质）")
     at.run()
     place = next(r for r in at.sidebar.radio if "传感器布置" in r.label)
-    assert "组合体（两介质）" in place.options
-    place.set_value("组合体（两介质）")
+    assert "组合体（两介质）" not in place.options      # 无专属布置
+    assert place.value == "几何特征"                    # 默认顶点布置直接可用
+    # 界面偏移 = 长度（mm）：离开中心 10 mm
+    next(s for s in at.sidebar.slider if "界面偏移" in s.label).set_value(10.0)
     at.run()
     next(r for r in at.sidebar.radio
          if "定位算法" in r.label).set_value("折射路径 (locRP)")
@@ -735,7 +740,7 @@ def test_plot_layout_draws_interface_plane():
     n_plain = len(plot_layout(sensors).axes[0].collections)
     # 45° 斜界面过试样中心
     pt, n = interface_plane((0.1, 0.1, 0.1), phi_deg=45.0, psi_deg=0.0,
-                            offset_frac=0.0)
+                            offset=0.0)
     fig = plot_layout(sensors, interface=(pt, n, (0.1, 0.1, 0.1)))
     ax3 = fig.axes[0]
     assert len(ax3.collections) == n_plain + 1      # +1 = 界面多边形

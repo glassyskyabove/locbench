@@ -264,22 +264,21 @@ def composite_layout(size, per_face: int = 2, seed=None, rng=None) -> Dict[int, 
 
 
 def interface_plane(size, phi_deg: float = 0.0, psi_deg: float = 0.0,
-                    offset_frac: float = 0.0):
+                    offset: float = 0.0):
     """The composite interface as ``(point, normal)`` (SI), from slider
-    angles: ``phi_deg`` = azimuth of the normal's horizontal projection
+    controls: ``phi_deg`` = azimuth of the normal's horizontal projection
     (0=+x, 90=+y), ``psi_deg`` = tilt of the normal off the horizontal
     (+ toward +z; +-89 deg at the extremes, 90 = horizontal interface),
-    ``offset_frac`` = shift along the normal as a fraction of the
-    specimen's extent along it (0 = through the centre).  Normal points
-    into medium 2."""
+    ``offset`` = the plane's signed DISTANCE (m) from the specimen centre
+    along the normal (positive = toward medium 2).  Normal points into
+    medium 2."""
     size = np.asarray(size, dtype=float)
     phi, psi = np.radians(phi_deg), np.radians(psi_deg)
     n = np.array([np.cos(psi) * np.cos(phi),
                   np.cos(psi) * np.sin(phi),
                   np.sin(psi)])
     n_hat = n / np.linalg.norm(n)
-    extent = float(np.abs(n_hat) @ size)          # specimen span along n
-    point = size / 2.0 + offset_frac * extent * n_hat
+    point = size / 2.0 + offset * n_hat
     return (tuple(float(v) for v in point), tuple(float(v) for v in n_hat))
 
 
