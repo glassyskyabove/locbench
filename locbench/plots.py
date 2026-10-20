@@ -7,7 +7,10 @@ without one installed this is a harmless no-op and labels fall back.
 from __future__ import annotations
 
 import numpy as np
-import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use("Agg")                   # 无头渲染；须在 pyplot 之前
+import matplotlib.pyplot as plt         # 仅 rcParams / 兼容关闭用
+from matplotlib.figure import Figure
 
 from .evaluate import TRIAL_COLS
 
@@ -128,13 +131,16 @@ def plot_layout(sensors: dict, sources=None, located=None,
     米->显示单位，如 mm 取 1e3），轴标注带单位。"""
     P = np.stack([np.asarray(p, dtype=float) for p in sensors.values()]) * factor
     dim = P.shape[1]
+    # 纯 OO Figure：不碰 pyplot 的全局 figure 注册表。streamlit 每个会话
+    # 一个脚本线程，多会话并发时 pyplot 全局状态会互相踩踏（tight bbox
+    # 偶发塌缩 -> PNG 尺寸漂移 -> 浏览器拉伸后"点的大小每次不一样"）。
+    fig = Figure(figsize=(6, 5))
     if dim == 3:
-        fig = plt.figure(figsize=(6, 5))
         ax = fig.add_subplot(projection="3d")
         ax.scatter(P[:, 0], P[:, 1], P[:, 2], marker="s", c="k",
                    label="传感器", s=28)
     else:
-        fig, ax = plt.subplots(figsize=(6, 5))
+        ax = fig.add_subplot()
         ax.scatter(P[:, 0], P[:, 1], marker="s", c="k", label="传感器", s=28)
         ax.set_aspect("equal")
     # 视野由台阵与真值震源决定：个别发散到远处的定位解不参与取限
@@ -188,9 +194,9 @@ def _scatter(ax, pts, **kw):
 
 
 def close_fig(fig) -> None:
-    """Release a rendered figure (st.pyplot does not): streamlit reruns
-    the whole script on every widget change, so unclosed figures pile up
-    in pyplot's registry -- growing memory and slowing each rerun."""
+    """Backward-compat hook: OO Figures never enter pyplot's global
+    registry, so plt.close is a harmless no-op on them.  Kept so the app
+    code reads the same after every plot call."""
     plt.close(fig)
 
 
@@ -203,9 +209,8 @@ def plot_metric_vs_param(df, param: str, metric: str = "err",
     （t0_err/rms/sigma）按各自显示单位缩放并标注。"""
     agg_cn = {"median": "中位", "mean": "均值"}.get(agg, agg)
     if ax is None:
-        fig, ax = plt.subplots(figsize=(6.5, 4))
-    else:
-        fig = ax.figure
+        fig = Figure(figsize=(6.5, 4))
+        ax = fig.add_subplot()
     others = [c for c in df.columns
               if c not in TRIAL_COLS and c != param and df[c].nunique() > 1]
     sub = df.dropna(subset=[metric])
@@ -242,9 +247,8 @@ def plot_heatmap(df, px: str, py: str, metric: str = "err",
     """两个扫描参数 x 一个指标的带数值标注热力图。"""
     piv = df.pivot_table(index=py, columns=px, values=metric, aggfunc=agg)
     if ax is None:
-        fig, ax = plt.subplots(figsize=(6, 4.5))
-    else:
-        fig = ax.figure
+        fig = Figure(figsize=(6, 4.5))
+        ax = fig.add_subplot()
     im = ax.imshow(piv.values, aspect="auto", origin="lower")
     ax.set_xticks(range(len(piv.columns)), [str(c) for c in piv.columns])
     ax.set_yticks(range(len(piv.index)), [str(i) for i in piv.index])
@@ -263,9 +267,8 @@ def plot_heatmap(df, px: str, py: str, metric: str = "err",
 
 def plot_err_hist(df, ax=None, unit: str = "m", factor: float = 1.0):
     if ax is None:
-        fig, ax = plt.subplots(figsize=(5.5, 4))
-    else:
-        fig = ax.figure
+        fig = Figure(figsize=(5.5, 4))
+        ax = fig.add_subplot()
     errs = df["err"].dropna() * factor
     ax.hist(errs, bins=30)
     ax.set_xlabel(f"定位误差 ({unit})")
