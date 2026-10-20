@@ -282,6 +282,31 @@ def test_sweep_plot_tol_log_axis():
     assert ax2.get_xscale() == "log"               # 全正 -> log
 
 
+def test_parse_values_equidistant_shorthand():
+    """扫描取值解析：等间距简写（括号式/冒号式、全角字符）与普通项混用，
+    含两端；非法表达式给出中文 ValueError。"""
+    from locbench.sweep import parse_values
+    # 括号式（含全角）：2000..4000 间隔 100 -> 21 个
+    v = parse_values("（2000，4000，100）")
+    assert len(v) == 21 and v[0] == 2000.0 and v[-1] == 4000.0
+    assert v[1] == 2100.0 and v[10] == 3000.0
+    # 冒号式 + 与普通项混用 + 小数/负数
+    v2 = parse_values("4, 8, 10:20:2.5, 48")
+    assert v2[:2] == [4.0, 8.0] and v2[-1] == 48.0
+    assert v2[2:7] == [10.0, 12.5, 15.0, 17.5, 20.0]  # 整除时含终点
+    # 含端点不整除：1 到 2 间隔 0.3 -> 1, 1.3, 1.6, 1.9
+    assert parse_values("(1,2,0.3)") == [1.0, 1.3, 1.6, 1.9]
+    # 负步长
+    assert parse_values("5:1:-2") == [5.0, 3.0, 1.0]
+    for bad in ("(1,2)", "1:2", "(1,10,0)", "(10,1,1)", "(1,2,a)",
+                "1,2,)", "((1,2,3)"):
+        try:
+            parse_values(bad)
+            raise AssertionError(f"必须报错：{bad}")
+        except ValueError:
+            pass
+
+
 def test_display_unit_scaling():
     """Distance displays scale m -> mm without touching the data layer."""
     import matplotlib

@@ -8,7 +8,70 @@ from typing import Dict, Optional, Sequence
 
 import pandas as pd
 
-__all__ = ["sweep"]
+__all__ = ["sweep", "parse_values"]
+
+
+def parse_values(text: str) -> list:
+    """逗号分隔的扫描取值列表，支持等间距简写。
+
+    等间距项可写成 ``2000:4000:100``（冒号式）或 ``(2000, 4000, 100)``
+    / 全角 ``（2000，4000，100）``（括号式），都表示从 2000 到 4000
+    **含两端**、间隔 100，即 2000, 2100, ..., 4000（共 21 个值）。
+    等间距项可与普通项混用，如 ``4, 8, (10, 20, 2), 48``；负步长需
+    起点 > 终点。全角逗号/分号、中英文括号均可。非法表达式抛
+    ValueError（中文，界面可直接显示）。
+    """
+    s = (text.replace("，", ",").replace("；", ";").replace(";", ",")
+             .replace("（", "(").replace("）", ")"))
+    # 括号外的逗号才是取值分隔符
+    tokens, depth, cur = [], 0, []
+    for ch in s:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth < 0:
+                raise ValueError("括号不匹配：多余的右括号")
+        if ch == "," and depth == 0:
+            tokens.append("".join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+    tokens.append("".join(cur))
+    if depth != 0:
+        raise ValueError("括号不匹配：缺少右括号")
+
+    vals: list = []
+    for tok in tokens:
+        tok = tok.strip()
+        if not tok:
+            continue
+        if tok.startswith("("):
+            inner = tok[1:-1] if tok.endswith(")") else None
+            if inner is None:
+                raise ValueError(f"等间距写法缺右括号：{tok!r}")
+            parts = inner.split(",")
+            if len(parts) != 3:
+                raise ValueError(f"等间距写法需要 3 个数（起点,终点,间隔）：{tok!r}")
+            triple = [float(p) for p in parts]
+        elif ":" in tok:
+            parts = tok.split(":")
+            if len(parts) != 3:
+                raise ValueError(f"等间距写法需要 起点:终点:间隔：{tok!r}")
+            triple = [float(p) for p in parts]
+        else:
+            vals.append(float(tok))
+            continue
+        start, stop, step = triple
+        if step == 0:
+            raise ValueError(f"等间距的间隔不能为 0：{tok!r}")
+        n = int((stop - start) / step + 1e-9) + 1
+        if n < 1:
+            raise ValueError(f"等间距区间为空（检查起点/终点/间隔方向）：{tok!r}")
+        vals.extend(start + step * k for k in range(n))
+    if not vals:
+        raise ValueError("取值列表为空")
+    return vals
 
 
 def sweep(locator_cls, param_grid: Dict[str, Sequence],

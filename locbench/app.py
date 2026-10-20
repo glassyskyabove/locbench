@@ -52,7 +52,7 @@ if __name__ == "__main__":
                                 plot_err_hist, plot_layout,
                                 plot_metric_vs_param, unit_labels)
     from locbench.plots import close_fig
-    from locbench.sweep import sweep
+    from locbench.sweep import parse_values, sweep
     from locbench.synth import (feature_layout, grid_sources, parse_layout,
                                 random_int_layout, random_sources)
 
@@ -399,13 +399,14 @@ if __name__ == "__main__":
                                  ["grid_size", "margin", "velocity", "max_iter",
                                   "tol"],
                                  format_func=PARAM_LABELS.get)
-            raw = st.text_input("取值（逗号分隔）",
+            raw = st.text_input(
+                "取值（逗号分隔，支持等间距 a:b:c 或（a,b,c））",
                                 {"grid_size": "4, 8, 16, 24, 48",
                                  "margin": "0.0, 0.05, 0.1, 0.2",
                                  "velocity": "4000, 4650, 5300, 5950, 6600",
                                  "max_iter": "5, 10, 20, 60, 150",
                                  "tol": "0, 1e-8, 1e-7, 1e-6, 1e-5"}[param])
-            vals = [float(v) for v in raw.replace(";", ",").split(",") if v.strip()]
+            vals = parse_values(raw)   # 等间距 (a,b,c) = 从 a 到 b 含端点间隔 c，可与普通项混用
             if param in ("grid_size", "max_iter"):
                 vals = [int(v) for v in vals]
 
@@ -418,11 +419,12 @@ if __name__ == "__main__":
         else:
             param = st.selectbox("场景参数", ["sigma", "fs", "drop_p"],
                                  format_func=PARAM_LABELS.get)
-            raw = st.text_input("取值（逗号分隔）",
+            raw = st.text_input(
+                "取值（逗号分隔，支持等间距 a:b:c 或（a,b,c））",
                                 {"sigma": "0, 1e-6, 2e-6, 5e-6, 1e-5",
                                  "fs": "0, 2e6, 5e6, 1e7, 4e7",
                                  "drop_p": "0, 0.1, 0.2, 0.3"}[param])
-            vals = [float(v) for v in raw.replace(";", ",").split(",") if v.strip()]
+            vals = parse_values(raw)   # 等间距 (a,b,c) = 从 a 到 b 含端点间隔 c，可与普通项混用
 
             @st.cache_data(show_spinner="扫描运行中…")
             def do_scenario_sweep(scenario_key, params, param, vals):
