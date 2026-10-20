@@ -250,8 +250,8 @@ if __name__ == "__main__":
         err_unit = st.selectbox("误差单位", ["µs", "ms"])
         f_err = 1e-6 if err_unit == "µs" else 1e-3
         _auto_default("sigma_in", 1e-6 / f_err)                # 基准 1 µs
-        sigma_in = st.slider("到时误差 σ", 0.0, 50e-6 / f_err, key="sigma_in",
-                             step=0.5e-6 / f_err,
+        sigma_in = st.slider("到时误差 σ", 0.0, 6e-6 / f_err, key="sigma_in",
+                             step=0.1e-6 / f_err,
                              on_change=lambda: _unset_auto("sigma_in"))
         sigma_s = sigma_in * f_err
         drop_p = st.slider("丢道概率", 0.0, 0.5, 0.1, 0.01,
