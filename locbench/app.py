@@ -45,7 +45,7 @@ if __name__ == "__main__":
     import numpy as np
     import pandas as pd
 
-    from aelib import GeigerLocator
+    from aelib import GeigerLocator, RefractionLocator
     from locbench.evaluate import Scenario, run_trials, summarize
     from locbench.plots import (DIST_ROWS, METRIC_LABELS, PARAM_LABELS,
                                 SUMMARY_LABELS, TIME_ROWS, display_table,
@@ -53,8 +53,9 @@ if __name__ == "__main__":
                                 plot_metric_vs_param, unit_labels)
     from locbench.plots import close_fig
     from locbench.sweep import parse_values, sweep
-    from locbench.synth import (feature_layout, grid_sources, parse_layout,
-                                random_int_layout, random_sources)
+    from locbench.synth import (feature_layout, grid_sources, head_layout,
+                                parse_layout, random_int_layout,
+                                random_sources)
 
     st.set_page_config(page_title="locbench", page_icon="\U0001F3AF",
                        layout="wide")
@@ -124,10 +125,25 @@ if __name__ == "__main__":
                                  on_change=lambda: _unset_auto("size_z"))
                  if is_3d else 0.0)
         lx, ly, lz = lx_in * u_sz, ly_in * u_sz, lz_in * u_sz     # -> m
-        place_label = st.radio("传感器布置", ["几何特征", "随机", "自定义"])
+        st.subheader("波速模型")
+        model_label = st.radio(
+            "到时正演", ["均质（直线传播）", "折射（试样 + 压头）"],
+            help="合成到时用的传播模型。均质：t = d/v，单一波速直线传播；"
+                 "折射（Rui et al. 2024）：试样盒内波速 v₁，压头已知波速 "
+                 "v₂，波在界面按 Snell 折射——传感器须装在压头上"
+                 "（布置选\"压头\"）。折射模型下 Geiger 有随 v₁/v₂ 偏离 1 "
+                 "增大的系统偏差，折射定位器则联合反演 v₁")
+        is_refr = model_label.startswith("折射")
+        place_label = st.radio(
+            "传感器布置", ["几何特征", "随机", "自定义"]
+            + (["压头（折射）"] if is_refr and is_3d else []),
+            help=("压头（折射）＝试样盒六个面外各布若干传感器"
+                  "（aelib RefractionLocator 的适用布置）"
+                  if is_refr else None))
         kind = f"{'3d' if is_3d else '2d'}-" + {"几何特征": "feature",
                                                 "随机": "random",
-                                                "自定义": "custom"}[place_label]
+                                                "自定义": "custom",
+                                                "压头（折射）": "head"}[place_label]
         n_wanted = st.slider("传感器数", 4, 32, 8) if place_label == "随机" else 0
 
         def _fmt_layout(m_pts):
@@ -183,6 +199,29 @@ if __name__ == "__main__":
             rand = random_int_layout(n_wanted, extent=ext_mm, seed=seed_gen)
             st.session_state["layout_text"] = _fmt_layout(
                 tuple(v * 1e-3 for v in p) for p in rand.values())
+        elif place_label == "压头（折射）":
+            n_per_face = st.number_input("每个压头（面）传感器数", 1, 8, 2,
+                                         help="试样盒六个面外各布 n 个传感器"
+                                              "（面内随机位置），共 6n 个")
+            o_min, o_max, o_step = ((0.5, 100.0, 0.5) if sz_unit == "mm"
+                                    else (0.0005, 0.1, 0.0005))
+            _auto_default("head_off_in", round(0.2 * min(lx_in, ly_in,
+                                                         lz_in), 9))
+            head_off_in = st.number_input(
+                "压头外距", o_min, o_max, key="head_off_in", step=o_step,
+                on_change=lambda: _unset_auto("head_off_in"),
+                help=f"传感器离试样面的垂直距离（当前单位 {sz_unit}）；"
+                     "默认 0.2×最短边。偏距越大（论文 5–50 mm 不等），压头"
+                     "段走时差异越大，v₁ 反演越可分辨；全部传感器小偏距"
+                     "且速度对比度大时，v₁-位置权衡会病态（折射法误差与"
+                     "Geiger 相当甚至更差）")
+            # 随机种子控件在侧栏更下方：先读 session_state（首跑用默认 0）
+            seed_gen = st.session_state.get("seed", 0)
+            st.session_state["layout_text"] = _fmt_layout(
+                head_layout((lx, ly, lz), per_face=int(n_per_face),
+                            offset=head_off_in * u_sz, seed=seed_gen).values())
+            st.caption(f"压头布置 = 六个面（±x/±y/±z）各 {int(n_per_face)} 个"
+                       f"传感器，共 {6 * int(n_per_face)} 个，全部在试样盒外")
         elif "layout_text" not in st.session_state:
             ex = ([(0, 0, 0), (100, 0, 0), (0, 100, 0), (100, 100, 0), (50, 50, 100)]
                   if is_3d else [(0, 0), (100, 0), (0, 100), (100, 100)])
@@ -193,8 +232,8 @@ if __name__ == "__main__":
             "传感器坐标（每行一个，逗号分隔）", key="layout_text", height=140,
             disabled=place_label != "自定义",
             help=f"每行一个传感器：{'x,y,z' if is_3d else 'x,y'}；单位与显示单位"
-                 f"一致（当前 {disp_unit}）；支持 # 注释行。几何特征/随机模式显示"
-                 f"生成的坐标（不可编辑），切到\"自定义\"可在此基础上修改")
+                 f"一致（当前 {disp_unit}）；支持 # 注释行。几何特征/随机/压头"
+                 f"模式显示生成的坐标（不可编辑），切到\"自定义\"可在此基础上修改")
         try:
             custom = parse_layout(custom_txt, n_components=3 if is_3d else 2,
                                   to_m=1.0 / factor)
@@ -257,61 +296,132 @@ if __name__ == "__main__":
         drop_p = st.slider("丢道概率", 0.0, 0.5, 0.1, 0.01,
                            help="每个事件对每个通道独立抽一个 [0,1) 均匀随机数，"
                                 "小于该值则此通道在此事件中被丢弃")
-        v_true = st.number_input("真实波速 (m/s)", 100.0, 10000.0, 5300.0, 100.0)
+        v_true = st.number_input(
+            "真实波速 (m/s)", 100.0, 10000.0, 5300.0, 100.0,
+            help="合成到时用的波速。折射模型下为试样波速 v₁（压头内为 "
+                 "v₂，见下）")
+        if is_refr:
+            v2_true = st.number_input(
+                "压头波速 v₂ (m/s)", 100.0, 10000.0, 5605.0, 100.0,
+                help="折射模型的压头/耦合块波速（已知量，如铁 5605 m/s）；"
+                     "v₁/v₂ 偏离 1 越远，均质直线模型（Geiger）的系统偏差"
+                     "越大")
+            if not is_3d:
+                st.warning("折射模型为三维布置（试样盒 + 六面压头）；"
+                           "当前维度为二维，折射定位器无法运行")
+            elif place_label not in ("压头（折射）", "自定义"):
+                st.warning("折射模型要求传感器装在压头上（试样盒外）；"
+                           "请把传感器布置切到\"压头（折射）\"，或用\"自定义\""
+                           "输入盒外坐标，否则合成到时将报错")
 
-        st.header("定位器（Geiger）")
-        v_used = st.number_input("采用波速 (m/s)", 100.0, 10000.0, 5300.0, 100.0)
-        grid_size = st.slider("初值点个数（grid size）", 4, 64, 4,
-                              help="初值网格每条轴的格点【数】，不是间距：在搜"
-                                   "索盒内等分取点且含边界，实际间距 = 跨度/"
-                                   "(个数−1)，候选点总数 = 个数^维度（见下方注"
-                                   "释）。定位迭代前对每个候选点算加权残差代"
-                                   "价，取最优者作起点。个数越多初值越稳但初"
-                                   "值阶段越慢")
-        st.caption(f"初值点 = {'×'.join([str(grid_size)] * (3 if is_3d else 2))}"
-                   f" = {grid_size ** (3 if is_3d else 2)} 个候选点"
-                   f"（{'三维' if is_3d else '二维'}网格搜索）")
-        margin = st.slider("外延比例（margin）", 0.0, 0.5, 0.0, 0.01,
-                           help="初值搜索盒 = 传感器包围盒各方向向外扩大的"
-                                "比例（0.05 = 每边外扩 5% 跨度），默认 0 即"
-                                "只在包围盒内搜索。震源通常在传感器阵列包围盒内；"
-                                "预判震源会越出传感器阵列时才需加大。只影响初值搜"
-                                "索范围，不限制最终解的位置")
-        max_iter = st.number_input("迭代上限（max_iter）", 5, 500, 60, 5,
-                                   help="外层迭代次数上限，两种模式共用；"
-                                        "跑满且末步 RMS 改善仍大于 tol 则标记"
-                                        "未收敛")
-        # 默认 = 1/fs（一个采样周期，与 aelib v0.9.39 的默认语义一致）；
-        # 未手动改过 tol 时随采样率联动，改过即脱钩；fs=0 回退 1e-6
-        _auto_default("tol_in", 1.0 / fs_hz if fs_hz > 0 else 1e-6)
-        tol = st.number_input("收敛判据 tol (s)", 0.0, 1e-3, key="tol_in",
-                              step=1e-7, format="%.1e",
-                              on_change=lambda: _unset_auto("tol_in"),
-                              help="相邻两次迭代加权残差 RMS 的改善量小于 tol "
-                                   "即判定收敛。默认 1/fs = 一个采样周期"
-                                   "（如 10 MHz → 1e-7 s，采样分辨率以下的"
-                                   "改善是噪声）；改采样率会联动此默认，手动"
-                                   "改过 tol 后不再联动；0 = 关闭该判据，"
-                                   "仅靠停滞判据或 max_iter 终止")
-        damping = st.checkbox("LM 阻尼", True)
-        est_v = st.checkbox("联合反演速度", False)
+        st.header("定位器")
+        method_label = st.radio(
+            "定位算法", ["Geiger", "折射路径 (locRP)"],
+            help="Geiger = 均质直线模型线性化加权最小二乘（grid 初值 + LM）；"
+                 "折射路径 = aelib RefractionLocator（Rui et al. 2024, IJMST "
+                 "34:521-530）：试样+压头双层折射正演，联合反演震源与试样"
+                 "波速 v₁（压头波速 v₂ 已知），LM + 迭代鲁棒加权——对粗差"
+                 "几乎免疫。需要折射场景：传感器在压头上 + 到时正演选折射")
+        is_rp = method_label.startswith("折射")
+        if is_rp:
+            v_used = st.number_input(
+                "试样波速初值 v₁ (m/s)", 100.0, 10000.0, 5605.0, 100.0,
+                help="v₁ 的迭代初值（论文从压头波速起步，默认同 v₂）；"
+                     "反演结果见逐试验表格的 velocity 列")
+            v2_used = st.number_input(
+                "压头波速 v₂ (m/s)", 100.0, 10000.0, 5605.0, 100.0,
+                help="已知的压头波速（正演模型 v₂）；定位与合成场景的 v₂ "
+                     "独立给定——不一致即模拟\"压头波速标定错\"的情形")
+            grid_size = st.slider(
+                "初值点个数（grid size）", 1, 64, 4,
+                help="初值网格每条轴的格点【数】，在试样盒内等分取点且含"
+                     "边界；1 = 只用试样中心（论文的单一初值）。折射法"
+                     "的初值网格覆盖试样盒而非传感器包围盒（传感器全在盒外）")
+            st.caption(f"初值点 = {'×'.join([str(grid_size)] * 3)}"
+                       f" = {grid_size ** 3} 个候选点（试样盒内三维网格搜索）")
+            margin = st.slider(
+                "外延比例（margin）", 0.0, 0.5, 0.0, 0.01,
+                help="初值搜索盒 = 试样盒各方向向外扩大的比例；预判震源在"
+                     "试样面与压头内面之间时才需加大")
+            max_iter = st.number_input("迭代上限（max_iter）", 5, 500, 60, 5,
+                                       help="LM 迭代次数上限（论文为 20；"
+                                            "默认 60 让鲁棒权重的重估充分"
+                                            "收敛）")
+            tol = st.number_input(
+                "收敛判据 tol (m)", 0.0, 1e-3, 1e-5, step=1e-7,
+                format="%.1e",
+                help="【位置步长】判据（与 Geiger 的时间 RMS 判据不同）："
+                     "一次被接受的迭代把震源移动 Σ|Δx|+|Δy|+|Δz| < tol "
+                     "即收敛。默认 1e-5 m = 0.01 mm——刻意偏松：鲁棒权重"
+                     "逐次重估时追噪声级以下的改进会让迭代沿位置-速度弱"
+                     "约束方向漂移；0 = 关闭该判据")
+        else:
+            v_used = st.number_input("采用波速 (m/s)", 100.0, 10000.0, 5300.0, 100.0)
+            grid_size = st.slider("初值点个数（grid size）", 4, 64, 4,
+                                  help="初值网格每条轴的格点【数】，不是间距：在搜"
+                                       "索盒内等分取点且含边界，实际间距 = 跨度/"
+                                       "(个数−1)，候选点总数 = 个数^维度（见下方注"
+                                       "释）。定位迭代前对每个候选点算加权残差代"
+                                       "价，取最优者作起点。个数越多初值越稳但初"
+                                       "值阶段越慢")
+            st.caption(f"初值点 = {'×'.join([str(grid_size)] * (3 if is_3d else 2))}"
+                       f" = {grid_size ** (3 if is_3d else 2)} 个候选点"
+                       f"（{'三维' if is_3d else '二维'}网格搜索）")
+            margin = st.slider("外延比例（margin）", 0.0, 0.5, 0.0, 0.01,
+                               help="初值搜索盒 = 传感器包围盒各方向向外扩大的"
+                                    "比例（0.05 = 每边外扩 5% 跨度），默认 0 即"
+                                    "只在包围盒内搜索。震源通常在传感器阵列包围盒内；"
+                                    "预判震源会越出传感器阵列时才需加大。只影响初值搜"
+                                    "索范围，不限制最终解的位置")
+            max_iter = st.number_input("迭代上限（max_iter）", 5, 500, 60, 5,
+                                       help="外层迭代次数上限，两种模式共用；"
+                                            "跑满且末步 RMS 改善仍大于 tol 则标记"
+                                            "未收敛")
+            # 默认 = 1/fs（一个采样周期，与 aelib v0.9.39 的默认语义一致）；
+            # 未手动改过 tol 时随采样率联动，改过即脱钩；fs=0 回退 1e-6
+            _auto_default("tol_in", 1.0 / fs_hz if fs_hz > 0 else 1e-6)
+            tol = st.number_input("收敛判据 tol (s)", 0.0, 1e-3, key="tol_in",
+                                  step=1e-7, format="%.1e",
+                                  on_change=lambda: _unset_auto("tol_in"),
+                                  help="相邻两次迭代加权残差 RMS 的改善量小于 tol "
+                                       "即判定收敛。默认 1/fs = 一个采样周期"
+                                       "（如 10 MHz → 1e-7 s，采样分辨率以下的"
+                                       "改善是噪声）；改采样率会联动此默认，手动"
+                                       "改过 tol 后不再联动；0 = 关闭该判据，"
+                                       "仅靠停滞判据或 max_iter 终止")
+        damping = st.checkbox("LM 阻尼", True) if not is_rp else True
+        est_v = st.checkbox("联合反演速度", False) if not is_rp else False
 
+    box3 = ((0.0, 0.0, 0.0), (lx, ly, lz))     # 试样盒（米）：布源域/折射界面
     SCENARIO_KEY = ("scenario", kind, n_sensors, lx, ly, lz, custom_key,
                     source_mode, n_sources,
                     tuple(d * u_sz for d in grid_d_in), repeats,
-                    seed, sigma_s, drop_p, fs_hz, v_true)
-    PARAMS = dict(velocity=v_used, grid_size=grid_size, margin=margin,
-                  max_iter=int(max_iter), tol=tol,
-                  damping=damping, estimate_velocity=est_v)
+                    seed, sigma_s, drop_p, fs_hz, v_true,
+                    "refraction" if is_refr else "homogeneous",
+                    (v2_true if is_refr else 0.0))
+    if is_rp:
+        PARAMS = dict(velocity=v_used, head_velocity=v2_used,
+                      grid_size=int(grid_size), margin=margin,
+                      max_iter=int(max_iter), tol=tol)
+    else:
+        PARAMS = dict(velocity=v_used, grid_size=grid_size, margin=margin,
+                      max_iter=int(max_iter), tol=tol,
+                      damping=damping, estimate_velocity=est_v)
 
 
-    def locator_kwargs(scenario_key, params, exclude=None):
-        """Locator constructor kwargs: user params plus mode='2d' for 2-D
-        layouts (pure 2-D sensor coordinates need no fixed axis)."""
+    def locator_kwargs(scenario_key, params, exclude=None, refr=None):
+        """Locator constructor kwargs: user params plus per-method extras --
+        ``mode='2d'`` for 2-D Geiger layouts (pure 2-D sensor coordinates
+        need no fixed axis); ``box`` (specimen bounds, metres) for the
+        refraction locator."""
+        if refr is None:
+            refr = is_rp                     # default: the selected method
         kw = dict(params)
         if exclude:
-            kw.pop(exclude, None)          # a swept param must not repeat
-        if scenario_key[1].startswith("2d"):
+            kw.pop(exclude, None)            # a swept param must not repeat
+        if refr:
+            kw.update(box=box3)              # 试样盒 = 折射界面（米）
+        elif scenario_key[1].startswith("2d"):
             kw.update(mode="2d")
         return kw
 
@@ -319,7 +429,8 @@ if __name__ == "__main__":
     @st.cache_data(show_spinner="生成合成场景…")
     def make_scenario(scenario_key):
         (_, kind, n_sensors, lx, ly, lz, custom_key, source_mode, n_sources,
-         spacing, repeats, seed, sigma, drop_p, fs, v_true) = scenario_key
+         spacing, repeats, seed, sigma, drop_p, fs, v_true, model,
+         head_v) = scenario_key
         sensors = dict(custom_key)          # the text box is the single source
         dim = 3 if kind.startswith("3d") else 2
         # 震源域 = 试样盒 [0, size]，与传感器包围盒解耦（部分布置如单边
@@ -332,15 +443,18 @@ if __name__ == "__main__":
             sources = random_sources(n_sources, box=box, seed=seed + 1)
         return Scenario(sensors=sensors, sources=sources, velocity=v_true,
                         sigma=sigma, drop_p=drop_p, fs=fs,
-                        seed=seed + 2, repeats=repeats)
+                        seed=seed + 2, repeats=repeats,
+                        model=model, head_velocity=head_v,
+                        box=(box if model == "refraction" else None))
 
 
     @st.cache_data(show_spinner="定位试验运行中…")
-    def run_trials_cached(scenario_key, params):
+    def run_trials_cached(scenario_key, method, params):
         sc = make_scenario(scenario_key)
-        kw = locator_kwargs(scenario_key, params)
-        df = run_trials(GeigerLocator(sc.sensors, **kw), sc)
-        return df
+        kw = locator_kwargs(scenario_key, params,
+                            refr=method.startswith("折射"))
+        cls = RefractionLocator if method.startswith("折射") else GeigerLocator
+        return run_trials(cls(sc.sensors, **kw), sc)
 
 
     # ------------------------------------------------------- tab 1: results
@@ -348,7 +462,7 @@ if __name__ == "__main__":
 
     with tab_result:
         try:
-            df = run_trials_cached(SCENARIO_KEY, PARAMS)
+            df = run_trials_cached(SCENARIO_KEY, method_label, PARAMS)
         except Exception as exc:            # e.g. degenerate (collinear) layout
             st.error(f"定位无法进行：{exc}")
             st.stop()
@@ -401,27 +515,41 @@ if __name__ == "__main__":
         metric = st.selectbox("评估指标", list(METRIC_LABELS),
                               format_func=METRIC_LABELS.get)
         if target.startswith("定位器"):
-            param = st.selectbox("参数",
-                                 ["grid_size", "margin", "velocity", "max_iter",
-                                  "tol"],
+            if is_rp:
+                param_opts = ["velocity", "head_velocity", "grid_size",
+                              "margin", "max_iter", "tol"]
+                raw_defaults = {"velocity": "3000, 5300, 5605, 7000",
+                                "head_velocity": "4000, 4800, 5605, 6500",
+                                "grid_size": "1, 2, 4, 8, 16",
+                                "margin": "0.0, 0.05, 0.1, 0.2",
+                                "max_iter": "5, 10, 20, 60, 150",
+                                "tol": "0, 1e-7, 1e-6, 1e-5, 1e-4"}
+            else:
+                param_opts = ["grid_size", "margin", "velocity", "max_iter",
+                              "tol"]
+                raw_defaults = {"grid_size": "4, 8, 16, 24, 48",
+                                "margin": "0.0, 0.05, 0.1, 0.2",
+                                "velocity": "1500, 2600:8000:300, 10000",
+                                "max_iter": "5, 10, 20, 60, 150",
+                                "tol": "0, 1e-8, 1e-7, 1e-6, 1e-5"}
+            param = st.selectbox("参数", param_opts,
                                  format_func=PARAM_LABELS.get)
             raw = st.text_input(
                 "取值（逗号分隔，支持等间距 a:b:c 或（a,b,c））",
-                                {"grid_size": "4, 8, 16, 24, 48",
-                                 "margin": "0.0, 0.05, 0.1, 0.2",
-                                 "velocity": "1500, 2600:8000:300, 10000",
-                                 "max_iter": "5, 10, 20, 60, 150",
-                                 "tol": "0, 1e-8, 1e-7, 1e-6, 1e-5"}[param])
+                raw_defaults[param])
             vals = parse_values(raw)   # 等间距 (a,b,c) = 从 a 到 b 含端点间隔 c，可与普通项混用
             if param in ("grid_size", "max_iter"):
                 vals = [int(v) for v in vals]
 
             @st.cache_data(show_spinner="扫描运行中…（磁盘缓存）")
-            def do_sweep(scenario_key, params, param, vals):
+            def do_sweep(scenario_key, method, params, param, vals):
                 sc = make_scenario(scenario_key)
-                return sweep(GeigerLocator, {param: vals}, sc,
-                             locator_kwargs=locator_kwargs(scenario_key, params,
-                                                           exclude=param))
+                cls = (RefractionLocator if method.startswith("折射")
+                       else GeigerLocator)
+                return sweep(cls, {param: vals}, sc,
+                             locator_kwargs=locator_kwargs(
+                                 scenario_key, params, exclude=param,
+                                 refr=method.startswith("折射")))
         else:
             param = st.selectbox("场景参数", ["sigma", "fs", "drop_p"],
                                  format_func=PARAM_LABELS.get)
@@ -433,10 +561,13 @@ if __name__ == "__main__":
             vals = parse_values(raw)   # 等间距 (a,b,c) = 从 a 到 b 含端点间隔 c，可与普通项混用
 
             @st.cache_data(show_spinner="扫描运行中…")
-            def do_scenario_sweep(scenario_key, params, param, vals):
+            def do_scenario_sweep(scenario_key, method, params, param, vals):
                 sc = make_scenario(scenario_key)
-                loc = GeigerLocator(sc.sensors,
-                                    **locator_kwargs(scenario_key, params))
+                cls = (RefractionLocator if method.startswith("折射")
+                       else GeigerLocator)
+                loc = cls(sc.sensors,
+                          **locator_kwargs(scenario_key, params,
+                                           refr=method.startswith("折射")))
                 frames = []
                 for v in vals:
                     d = run_trials(loc, replace(sc, **{param: v}))
@@ -447,9 +578,10 @@ if __name__ == "__main__":
         agg_map = {"err_p95": ("err", lambda x: x.quantile(0.95)),
                    "stderr_calibration": ("err", "median")}
         try:
-            df2 = (do_sweep(SCENARIO_KEY, PARAMS, param, vals)
+            df2 = (do_sweep(SCENARIO_KEY, method_label, PARAMS, param, vals)
                    if target.startswith("定位器")
-                   else do_scenario_sweep(SCENARIO_KEY, PARAMS, param, vals))
+                   else do_scenario_sweep(SCENARIO_KEY, method_label, PARAMS,
+                                          param, vals))
         except Exception as exc:
             st.error(f"扫描无法进行：{exc}")
             st.stop()

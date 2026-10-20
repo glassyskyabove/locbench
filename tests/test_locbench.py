@@ -2,13 +2,14 @@
 import numpy as np
 import pandas as pd
 
-from aelib import GeigerLocator
+from aelib import GeigerLocator, RefractionLocator
 
 from locbench.evaluate import Scenario, run_trials, summarize
 from locbench.sweep import sweep
 from locbench.synth import (corners_layout, coplanar_layout, feature_layout,
-                            grid_sources, make_arrivals, parse_layout,
-                            random_int_layout, random_layout, random_sources)
+                            grid_sources, head_layout, make_arrivals,
+                            parse_layout, random_int_layout, random_layout,
+                            random_sources)
 
 
 def test_random_int_layout_mm_grid():
@@ -387,3 +388,125 @@ def test_display_unit_scaling():
     assert "残差 RMS (ms)" in show2.columns
     assert np.allclose(show2["发震时刻误差 (ms)"].dropna(),
                        df["t0_err"].dropna() * 1e3)
+
+
+def test_head_layout_sensors_outside_on_one_axis():
+    """head_layout: six faces x per_face sensors, each strictly outside the
+    box on exactly ONE axis at the offset distance (RefractionLocator's
+    admissible layout); per_face=1 takes face centres; deterministic."""
+    lay = head_layout((0.1, 0.1, 0.2), per_face=2, offset=0.012, seed=3)
+    assert len(lay) == 12
+    lo = np.zeros(3)
+    hi = np.array([0.1, 0.1, 0.2])
+    per_face = {a: {0: 0, 1: 0} for a in range(3)}
+    for p in lay.values():
+        out = [a for a in range(3) if p[a] < lo[a] or p[a] > hi[a]]
+        assert len(out) == 1, f"sensor {p} outside on {out}"
+        a = out[0]
+        side = 1 if p[a] > hi[a] else 0
+        assert abs(abs(p[a] - (hi[a] if side else lo[a])) - 0.012) < 1e-12
+        in_plane = [p[i] for i in range(3) if i != a]
+        bounds = [(lo[i], hi[i]) for i in range(3) if i != a]
+        assert all(l < v < h for v, (l, h) in zip(in_plane, bounds))
+        per_face[a][side] += 1
+    assert all(c == 2 for f in per_face.values() for c in f.values())
+    lay2 = head_layout((0.1, 0.1, 0.2), per_face=2, offset=0.012, seed=3)
+    assert lay2 == lay                                          # deterministic
+    centres = head_layout((0.1, 0.1, 0.1), per_face=1, offset=0.01, seed=9)
+    assert np.allclose(list(centres.values()),
+                       [(-0.01, 0.05, 0.05), (0.11, 0.05, 0.05),
+                        (0.05, -0.01, 0.05), (0.05, 0.11, 0.05),
+                        (0.05, 0.05, -0.01), (0.05, 0.05, 0.11)], atol=1e-12)
+    for kwargs in ({"size": (0.1, 0.1)}, {"per_face": 0}):
+        try:
+            head_layout(**{**{"size": (0.1, 0.1, 0.1), "per_face": 1,
+                              "offset": 0.01}, **kwargs})
+            raise AssertionError("must reject bad args")
+        except ValueError:
+            pass
+
+
+def test_make_arrivals_refraction_degenerates_to_homogeneous():
+    """v1 == v2: the refraction forward model equals the straight-line
+    model exactly (Snell point on the straight path); a mismatched
+    unknown model raises."""
+    sensors = head_layout((0.1, 0.1, 0.1), per_face=2, offset=0.012, seed=1)
+    src = np.array([0.043, 0.061, 0.027])
+    box = ((0.0, 0.0, 0.0), (0.1, 0.1, 0.1))
+    refr, _ = make_arrivals(sensors, src, velocity=5300.0, t0=0.5,
+                            model="refraction", head_velocity=5300.0,
+                            box=box, seed=2)
+    hom, _ = make_arrivals(sensors, src, velocity=5300.0, t0=0.5, seed=2)
+    assert max(abs(refr[c] - hom[c]) for c in refr) < 1e-15
+    try:
+        make_arrivals(sensors, src, velocity=5300.0, model="refraction",
+                      head_velocity=5605.0)                    # box missing
+        raise AssertionError("missing box must raise")
+    except ValueError:
+        pass
+    try:
+        make_arrivals(sensors, src, velocity=5300.0, model="banana")
+        raise AssertionError("unknown model must raise")
+    except ValueError:
+        pass
+
+
+def test_refraction_scenario_round_trip():
+    """End to end: head layout + refraction forward model + RefractionLocator
+    recovers sources and the specimen velocity on clean arrivals."""
+    sensors = head_layout((0.1, 0.1, 0.1), per_face=2, offset=0.012, seed=5)
+    sources = np.array([[0.043, 0.061, 0.027], [0.07, 0.02, 0.08],
+                        [0.02, 0.08, 0.05]])
+    sc = Scenario(sensors=sensors, sources=sources, velocity=5300.0,
+                  model="refraction", head_velocity=5605.0,
+                  box=((0.0, 0.0, 0.0), (0.1, 0.1, 0.1)), seed=1)
+    loc = RefractionLocator(sensors, box=((0, 0, 0), (0.1, 0.1, 0.1)),
+                            velocity=5605.0, head_velocity=5605.0)
+    df = run_trials(loc, sc)
+    assert len(df) == 3
+    assert df["err"].notna().all()
+    assert (df["err"] < 1e-4).all()          # clean -> numerical precision
+    assert df["converged"].all()
+    assert (abs(df["velocity"] - 5300.0) < 1.0).all()   # v1 jointly inverted
+
+
+def test_refraction_method_beats_geiger_on_refraction_data():
+    """The paper's Fig. 11 story on synthetic bench data: with sensors on
+    heads and a strong v1/v2 contrast, straight-line Geiger carries a
+    several-mm systematic bias the refraction method does not (verified
+    range: contrast sweep on clean-to-mildly-noisy data -- at 1 us noise
+    with a strong contrast the joint v1 inversion is itself weakly
+    conditioned, which the paper never claims to survive)."""
+    sensors = head_layout((0.1, 0.1, 0.1), per_face=2, offset=0.012, seed=7)
+    rng = np.random.default_rng(0)
+    sources = rng.uniform(0.02, 0.08, size=(6, 3))
+    v1, v2 = 5300.0, 7000.0                  # c1/c2 = 0.76: strong contrast
+    sc = Scenario(sensors=sensors, sources=sources, velocity=v1, sigma=0.2e-6,
+                  model="refraction", head_velocity=v2,
+                  box=((0.0, 0.0, 0.0), (0.1, 0.1, 0.1)), seed=2, repeats=2)
+    box_kw = dict(box=((0, 0, 0), (0.1, 0.1, 0.1)))
+    df_r = run_trials(RefractionLocator(sensors, velocity=v2,
+                                        head_velocity=v2, **box_kw), sc)
+    df_g = run_trials(GeigerLocator(sensors, velocity=v2), sc)
+    assert df_r["err"].notna().all()
+    med_r, med_g = df_r["err"].median(), df_g["err"].median()
+    assert med_r < 0.006, f"refraction median {med_r*1e3:.1f} mm"
+    assert med_g > 0.008, f"geiger median {med_g*1e3:.1f} mm (expected bias)"
+    assert med_r < med_g / 2                 # clearly better, not a coin flip
+    # v1 comes back near truth despite starting at v2
+    assert abs(df_r["velocity"].median() - v1) / v1 < 0.05
+
+
+def test_refraction_sweep_over_v1_init(tmp_path):
+    """Sweep machinery works for the refraction locator too: sweeping the
+    v1 initial guess (velocity) yields a table with the parameter column."""
+    sensors = head_layout((0.1, 0.1, 0.1), per_face=2, offset=0.012, seed=7)
+    sc = Scenario(sensors=sensors, sources=np.array([[0.05, 0.05, 0.05]]),
+                  velocity=5300.0, model="refraction", head_velocity=5605.0,
+                  box=((0.0, 0.0, 0.0), (0.1, 0.1, 0.1)), seed=1)
+    df = sweep(RefractionLocator, {"velocity": [4500.0, 5605.0]}, sc,
+               cache_dir=str(tmp_path),
+               locator_kwargs=dict(head_velocity=5605.0,
+                                   box=((0, 0, 0), (0.1, 0.1, 0.1))))
+    assert set(df["velocity"]) == {4500.0, 5605.0} and len(df) == 2
+    assert (df["err"] < 1e-4).all()          # both starts reach the solution

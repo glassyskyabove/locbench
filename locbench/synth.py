@@ -12,9 +12,9 @@ from typing import Dict, Optional, Tuple
 
 import numpy as np
 
-__all__ = ["corners_layout", "feature_layout", "random_layout",
-           "random_int_layout", "coplanar_layout", "random_sources",
-           "grid_sources", "parse_layout", "make_arrivals"]
+__all__ = ["corners_layout", "feature_layout", "head_layout",
+           "random_layout", "random_int_layout", "coplanar_layout",
+           "random_sources", "grid_sources", "parse_layout", "make_arrivals"]
 
 
 def random_int_layout(n_sensors: int, extent=(100, 100, 200),
@@ -188,6 +188,54 @@ def feature_layout(size, edges: dict = None, faces=(),
     return {i + 1: p for i, p in enumerate(pts)}
 
 
+def head_layout(size, per_face: int = 2, offset: float = 0.01,
+                min_spacing: float = None, seed=None, rng=None) -> Dict[int, tuple]:
+    """Sensors on the pressure heads of the box ``[0, size]`` (3-D only) --
+    the layout RefractionLocator needs: every sensor strictly outside the
+    box on exactly ONE axis (``offset`` m out along that face's normal),
+    in-plane coordinates uniform over the face with a ``min_spacing``
+    floor (default 10 % of the smallest face side), rejection-sampled.
+    ``per_face=1`` takes each face centre.  Six faces -> ``6 * per_face``
+    sensors, keys 1..n, deterministic given ``seed``; SI units.
+
+    Note: a UNIFORM small offset makes the head-path lengths similar and
+    the joint v1 inversion weakly conditioned under noise at strong
+    v1/v2 contrast -- the paper's layouts use varied offsets (5-50 mm
+    on a 100 mm cube).  Use a generous ``offset`` (or edit the generated
+    coordinates via 自定义) when testing strong contrasts."""
+    rng = _rng(rng, seed)
+    size = np.asarray(size, dtype=float)
+    if size.size != 3:
+        raise ValueError("压头布置需要三维尺寸（x, y, z）")
+    if per_face < 1:
+        raise ValueError("每个压头的传感器数至少为 1")
+    face_lo, face_hi = 0.05 * size, 0.95 * size   # keep in-plane off edges
+    if min_spacing is None:
+        min_spacing = 0.1 * size.min()
+    pts: list = []
+    tries = 0
+    for ax in range(3):
+        for side in (0.0, 1.0):
+            for _ in range(per_face):
+                while True:
+                    p = rng.uniform(face_lo, face_hi)
+                    if per_face == 1:
+                        p = 0.5 * size            # single sensor: face centre
+                    p[ax] = side * size[ax] + (offset if side else -offset)
+                    same_face = [q for q in pts
+                                 if np.sign(q[ax] - size[ax] / 2) ==
+                                 np.sign(p[ax] - size[ax] / 2)]
+                    if all(np.linalg.norm(p - q) >= min_spacing
+                           for q in same_face):
+                        break
+                    tries += 1
+                    if tries > 20_000:            # crowded face: relax floor
+                        min_spacing *= 0.5
+                        tries = 0
+                pts.append(p)
+    return {i + 1: tuple(float(v) for v in p) for i, p in enumerate(pts)}
+
+
 def _rng(rng, seed):
     return np.random.default_rng(rng if rng is not None else seed)
 
@@ -247,10 +295,19 @@ def random_sources(n: int, sensors: dict = None, margin: float = 0.0,
 
 def make_arrivals(sensors: dict, source, velocity: float, t0: float = 0.0,
                   sigma: float = 0.0, drop_p: float = 0.0, fs: float = 0.0,
-                  seed=None, rng=None) -> Tuple[dict, dict]:
-    """Exact arrivals ``t_i = t0 + |s_i - x| / v`` plus simulated pick
-    errors.
+                  seed=None, rng=None, model: str = "homogeneous",
+                  head_velocity: float = 0.0, box=None) -> Tuple[dict, dict]:
+    """Exact arrivals plus simulated pick errors.
 
+    - ``model="homogeneous"`` (default): straight-line propagation
+      ``t_i = t0 + |s_i - x| / v``
+    - ``model="refraction"``: two-layer specimen-in-heads forward model
+      ``t_i = t0 + D1_i/v + D2_i/head_velocity`` (aelib's
+      RefractionLocator forward model, SI): sensors must sit on heads
+      outside ``box`` = ``((x0,y0,z0),(x1,y1,z1))`` (required, metres),
+      ``velocity`` is the specimen velocity v1 and ``head_velocity``
+      the known head velocity v2.  ``v1 == v2`` degenerates to the
+      homogeneous model.
     - ``sigma``: Gaussian picking noise per pick (s)
     - ``fs``: sampling rate (Hz) -- when > 0 the arrival times are
       quantized to the sampling period 1/fs AFTER the Gaussian noise,
@@ -265,8 +322,21 @@ def make_arrivals(sensors: dict, source, velocity: float, t0: float = 0.0,
     rng = _rng(rng, seed)
     chs = list(sensors)
     S = np.stack([np.asarray(sensors[c], dtype=float) for c in chs])
-    d = np.linalg.norm(S - np.asarray(source, dtype=float), axis=1)
-    t = t0 + d / velocity
+    if model == "refraction":
+        from aelib.locate.refraction import (classify_heads,
+                                             travel_times_refraction)
+        if box is None:
+            raise ValueError("折射模型需要 box=((x0,y0,z0),(x1,y1,z1))"
+                             "（试样盒，米）")
+        lo, hi = (np.asarray(b, dtype=float) for b in box)
+        t = t0 + travel_times_refraction(np.asarray(source, dtype=float),
+                                         S, classify_heads(S, lo, hi),
+                                         velocity, head_velocity, lo, hi)
+    elif model == "homogeneous":
+        d = np.linalg.norm(S - np.asarray(source, dtype=float), axis=1)
+        t = t0 + d / velocity
+    else:
+        raise ValueError(f"未知波速模型 {model!r}（'homogeneous' 或 'refraction'）")
     if sigma:
         t = t + rng.normal(0.0, sigma, t.size)
     if fs:

@@ -26,6 +26,13 @@ class Scenario:
     ``sensors``/``source``/``velocity``, degraded by ``sigma`` /
     ``drop_p`` and located.  ``repeats`` noise seeds per
     source give error statistics.
+
+    ``model`` selects the forward model that synthesizes the arrivals:
+    ``"homogeneous"`` (straight line, single velocity) or
+    ``"refraction"`` (specimen-in-heads: ``velocity`` = specimen v1,
+    ``head_velocity`` = known head v2, ``box`` = specimen bounds
+    ``((x0,y0,z0),(x1,y1,z1))`` in metres, sensors on heads outside the
+    box -- the RefractionLocator geometry; see aelib).
     """
     sensors: dict
     sources: np.ndarray            # (n, dim) known truth
@@ -37,6 +44,9 @@ class Scenario:
                                     # times to 1/fs (instrument resolution)
     seed: int = 0
     repeats: int = 1
+    model: str = "homogeneous"     # "homogeneous" | "refraction"
+    head_velocity: float = 0.0     # refraction model: known head v2, m/s
+    box: tuple = None              # refraction model: specimen bounds (m)
 
 
 def run_trials(locator, scenario: Scenario) -> pd.DataFrame:
@@ -58,7 +68,8 @@ def run_trials(locator, scenario: Scenario) -> pd.DataFrame:
             arrivals, _ = make_arrivals(
                 scenario.sensors, src, scenario.velocity, t0=t0_true,
                 sigma=scenario.sigma, drop_p=scenario.drop_p,
-                fs=scenario.fs, rng=rng)
+                fs=scenario.fs, rng=rng, model=scenario.model,
+                head_velocity=scenario.head_velocity, box=scenario.box)
             row = dict(source=i, repeat=rep, n_picks=len(arrivals))
             t_start = time.perf_counter()
             try:
