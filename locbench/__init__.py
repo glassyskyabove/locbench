@@ -7,7 +7,7 @@ from .synth import (corners_layout, coplanar_layout, grid_sources,
                     head_layout, make_arrivals, parse_layout,
                     random_int_layout, random_layout, random_sources)
 
-__version__ = "0.2.21"
+__version__ = "0.2.22"
 
 __all__ = [
     "Scenario", "run_trials", "summarize", "sweep",

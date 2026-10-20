@@ -510,3 +510,50 @@ def test_refraction_sweep_over_v1_init(tmp_path):
                                    box=((0, 0, 0), (0.1, 0.1, 0.1))))
     assert set(df["velocity"]) == {4500.0, 5605.0} and len(df) == 2
     assert (df["err"] < 1e-4).all()          # both starts reach the solution
+
+
+def test_dashboard_refraction_method_needs_head_layout():
+    """AppTest 回归：只选折射定位器（正演保持均质、布置仍是角点）时，
+    面板不得把 aelib 的英文 ValueError 原样抛给用户——侧栏出现中文
+    警告、结果区给出带\"压头\"指引的中文错误并停止；同时\"压头（折射）\"
+    布置选项此时就应出现（不必先切正演模型）。"""
+    import pytest
+    pytest.importorskip("streamlit")
+    from pathlib import Path
+    from streamlit.testing.v1 import AppTest
+
+    # AppTest 的相对路径按调用文件解析，须给绝对路径
+    app = Path(__file__).resolve().parents[1] / "locbench" / "app.py"
+    at = AppTest.from_file(str(app), default_timeout=300)
+    at.run()
+    assert not at.exception
+    # 缩小默认场景（网格 250 源 x 3 重复 -> 随机 1 源；扫描取值压到 1 个），
+    # 只测 UI 分支，不测数值。震源数滑条只在随机模式下渲染，分两步设
+    next(r for r in at.sidebar.radio if "震源布置" in r.label).set_value("随机震源")
+    at.run()
+    next(s for s in at.sidebar.slider if s.label == "震源数").set_value(1)
+    next(t for t in at.text_input
+         if t.label.startswith("取值")).set_value("5300")
+    at.run()
+    assert not at.exception
+
+    # 只切方法 -> 角点布置不满足压头几何：中文警告 + 中文错误 + 不抛异常
+    next(r for r in at.sidebar.radio
+         if "定位算法" in r.label).set_value("折射路径 (locRP)")
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    place_opts = next(r for r in at.sidebar.radio
+                      if "传感器布置" in r.label).options
+    assert "压头（折射）" in place_opts          # 无需先切正演模型即可选
+    assert any("压头" in w.value for w in at.sidebar.warning)
+    errs = [e.value for e in at.error]
+    assert any("压头" in e for e in errs), errs
+    assert not any("GeigerLocator" in e or "inside the specimen" in e
+                   for e in errs)                # 英文原始错误不再外露
+
+    # 按指引切到压头布置（正演仍为均质 = 折射法吃错模型的数据）：可运行
+    next(r for r in at.sidebar.radio
+         if "传感器布置" in r.label).set_value("压头（折射）")
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert not at.error

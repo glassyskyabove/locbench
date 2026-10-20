@@ -134,12 +134,16 @@ if __name__ == "__main__":
                  "（布置选\"压头\"）。折射模型下 Geiger 有随 v₁/v₂ 偏离 1 "
                  "增大的系统偏差，折射定位器则联合反演 v₁")
         is_refr = model_label.startswith("折射")
+        # 定位算法单选框在侧栏更下方才创建，但用户改动后 session_state
+        # 在本次重跑一开始就已更新——提前读它，布置选项就能跟随方法联动
+        is_rp_now = str(st.session_state.get("loc_method", "Geiger")
+                        ).startswith("折射")
         place_label = st.radio(
             "传感器布置", ["几何特征", "随机", "自定义"]
-            + (["压头（折射）"] if is_refr and is_3d else []),
+            + (["压头（折射）"] if (is_refr or is_rp_now) and is_3d else []),
             help=("压头（折射）＝试样盒六个面外各布若干传感器"
-                  "（aelib RefractionLocator 的适用布置）"
-                  if is_refr else None))
+                  "（折射定位器 / 折射正演的适用布置）"
+                  if (is_refr or is_rp_now) else None))
         kind = f"{'3d' if is_3d else '2d'}-" + {"几何特征": "feature",
                                                 "随机": "random",
                                                 "自定义": "custom",
@@ -247,6 +251,33 @@ if __name__ == "__main__":
                        f"定位至少需要 {min_needed} 个通道，请多选几项几何特征或"
                        f"增加等分点数")
         custom_key = tuple(sorted(custom.items()))
+
+        # 压头几何预检：折射正演与折射定位器都要求传感器恰在一个轴向上
+        # 处于试样盒 [0, 尺寸] 外（与 aelib classify_heads 同判据）。提前
+        # 在这里判掉并给中文引导，避免跑到一半才冒出 aelib 的英文错误
+        def _head_problem():
+            if not is_3d:
+                return "折射法为三维布置（试样盒 + 六面压头），当前维度为二维"
+            lo, hi = np.zeros(3), np.array([lx, ly, lz])
+            for p in np.asarray(list(custom.values()), dtype=float):
+                out = [a for a in range(3) if p[a] < lo[a] or p[a] > hi[a]]
+                if len(out) != 1:
+                    disp = ", ".join(f"{v * factor:.6g}" for v in p)
+                    why = ("在试样盒内/盒上" if not out else
+                           f"同时在 {len(out)} 个轴向上处于盒外")
+                    return (f"首个不满足的传感器（{disp_unit}）：({disp}) {why}"
+                            "——压头布置要求每个传感器恰在一个轴向上处于盒外")
+            return None
+
+        if (is_refr or is_rp_now):
+            heads_problem = _head_problem()
+            if heads_problem:
+                st.warning(
+                    f"折射{'正演' if is_refr else '定位器'}需要传感器装在压头上"
+                    f"（三维布置，每个传感器恰在一个轴向上处于试样盒外）。"
+                    f"{heads_problem}。请把\"传感器布置\"切到\"压头（折射）\"，"
+                    f"或用\"自定义\"输入盒外坐标；角点/盒内布置属均质几何，"
+                    f"配 Geiger 使用")
         source_mode = st.radio("震源布置", ["随机震源", "网格震源"], index=1)
         if source_mode == "随机震源":
             n_sources = st.slider("震源数", 1, 50, 10)
@@ -306,22 +337,17 @@ if __name__ == "__main__":
                 help="折射模型的压头/耦合块波速（已知量，如铁 5605 m/s）；"
                      "v₁/v₂ 偏离 1 越远，均质直线模型（Geiger）的系统偏差"
                      "越大")
-            if not is_3d:
-                st.warning("折射模型为三维布置（试样盒 + 六面压头）；"
-                           "当前维度为二维，折射定位器无法运行")
-            elif place_label not in ("压头（折射）", "自定义"):
-                st.warning("折射模型要求传感器装在压头上（试样盒外）；"
-                           "请把传感器布置切到\"压头（折射）\"，或用\"自定义\""
-                           "输入盒外坐标，否则合成到时将报错")
 
         st.header("定位器")
         method_label = st.radio(
-            "定位算法", ["Geiger", "折射路径 (locRP)"],
+            "定位算法", ["Geiger", "折射路径 (locRP)"], key="loc_method",
             help="Geiger = 均质直线模型线性化加权最小二乘（grid 初值 + LM）；"
                  "折射路径 = aelib RefractionLocator（Rui et al. 2024, IJMST "
                  "34:521-530）：试样+压头双层折射正演，联合反演震源与试样"
                  "波速 v₁（压头波速 v₂ 已知），LM + 迭代鲁棒加权——对粗差"
-                 "几乎免疫。需要折射场景：传感器在压头上 + 到时正演选折射")
+                 "几乎免疫。需要压头布置：传感器在试样盒外（布置选\"压头"
+                 "（折射）\"）；到时正演再选\"折射\"即双层介质的完整场景，"
+                 "正演保持\"均质\"则相当于给折射法喂错模型的数据")
         is_rp = method_label.startswith("折射")
         if is_rp:
             v_used = st.number_input(
@@ -458,6 +484,15 @@ if __name__ == "__main__":
 
 
     # ------------------------------------------------------- tab 1: results
+    # 折射正演 / 折射定位器的压头几何闸门：不满足时直接给中文引导，
+    # 不再让 aelib 的英文 ValueError 从构造器里冒出来
+    if (is_refr or is_rp) and _head_problem():
+        st.error(f"折射{'正演' if is_refr else '定位器'}无法运行：{_head_problem()}。"
+                 "请在侧栏把\"传感器布置\"切到\"压头（折射）\"（六面压头自动"
+                 "布点），或切到\"自定义\"把坐标改到试样盒外；角点/盒内布置"
+                 "属均质几何，配 Geiger 使用")
+        st.stop()
+
     tab_result, tab_sweep = st.tabs(["场景与结果", "参数敏感性"])
 
     with tab_result:
