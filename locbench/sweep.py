@@ -4,11 +4,37 @@ from __future__ import annotations
 import hashlib
 import itertools
 import os
+import time
 from typing import Dict, Optional, Sequence
 
 import pandas as pd
 
-__all__ = ["sweep", "parse_values"]
+__all__ = ["sweep", "parse_values", "clean_cache"]
+
+
+def clean_cache(cache_dir: str = "results", max_age_days: float = 7.0) -> int:
+    """删除 ``cache_dir`` 下修改时间早于 ``max_age_days`` 天的
+    ``sweep_*.pkl`` 缓存文件，返回删除数。
+
+    缓存按（定位器、参数网格、场景、aelib 版本）哈希命名：任一设置
+    变化后旧文件永远不会再命中，只会占硬盘，因此由 :func:`sweep`
+    在每次运行入口自动清理（7 天保留期，可通过 ``max_age_days``
+    调整）。只动 ``sweep_*.pkl``，目录里其他文件不碰。"""
+    if not os.path.isdir(cache_dir):
+        return 0
+    cutoff = time.time() - max_age_days * 86400.0
+    removed = 0
+    for name in os.listdir(cache_dir):
+        if not (name.startswith("sweep_") and name.endswith(".pkl")):
+            continue
+        path = os.path.join(cache_dir, name)
+        try:
+            if os.path.getmtime(path) < cutoff:
+                os.remove(path)
+                removed += 1
+        except OSError:
+            pass
+    return removed
 
 
 def parse_values(text: str) -> list:
@@ -111,6 +137,7 @@ def sweep(locator_cls, param_grid: Dict[str, Sequence],
 
     if not param_grid:
         raise ValueError("param_grid is empty")
+    clean_cache(cache_dir)            # 先清 7 天前的旧缓存再查/写
     locator_kwargs = dict(locator_kwargs or {})
     clash = set(param_grid) & set(locator_kwargs)
     if clash:

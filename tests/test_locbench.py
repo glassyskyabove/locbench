@@ -307,6 +307,29 @@ def test_parse_values_equidistant_shorthand():
             pass
 
 
+def test_sweep_cache_prunes_old_files(tmp_path):
+    """clean_cache：按 mtime 删除 7 天前的 sweep_*.pkl，新文件与非
+    sweep 文件不动；不存在的目录返回 0。"""
+    import os
+    import time as time_mod
+    from locbench.sweep import clean_cache
+    d = tmp_path / "results"
+    d.mkdir()
+    old = d / "sweep_old.pkl"
+    old.write_bytes(b"x")
+    fresh = d / "sweep_fresh.pkl"
+    fresh.write_bytes(b"x")
+    other = d / "notes.txt"
+    other.write_bytes(b"x")
+    ago = time_mod.time() - 8 * 86400
+    os.utime(old, (ago, ago))                 # 8 天前 -> 过期
+    assert clean_cache(str(d), max_age_days=7) == 1
+    assert not old.exists()
+    assert fresh.exists() and other.exists()
+    assert clean_cache(str(d)) == 0           # 幂等
+    assert clean_cache(str(tmp_path / "nope")) == 0
+
+
 def test_display_unit_scaling():
     """Distance displays scale m -> mm without touching the data layer."""
     import matplotlib
