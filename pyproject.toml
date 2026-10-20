@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "locbench"
-version = "0.2.22"
+version = "0.2.23"
 description = "Locator testing / parameter tuning on purely synthetic data (bench layer over aelib)"
 requires-python = ">=3.9"
 dependencies = [
@@ -15,7 +15,7 @@ dependencies = [
     # 前提依赖：aelib 为私有库、不经 pip 分发——安装 locbench 的环境
     # 必须已装有 aelib（已装时本条直接满足；缺失时安装以"找不到
     # aelib"停止，提示先装 aelib）
-    "aelib>=0.9.41",
+    "aelib>=0.9.42",
 ]
 
 [project.optional-dependencies]

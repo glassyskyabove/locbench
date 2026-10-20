@@ -6,10 +6,10 @@ from aelib import GeigerLocator, RefractionLocator
 
 from locbench.evaluate import Scenario, run_trials, summarize
 from locbench.sweep import sweep
-from locbench.synth import (corners_layout, coplanar_layout, feature_layout,
-                            grid_sources, head_layout, make_arrivals,
-                            parse_layout, random_int_layout, random_layout,
-                            random_sources)
+from locbench.synth import (composite_layout, corners_layout,
+                            coplanar_layout, feature_layout, grid_sources,
+                            head_layout, make_arrivals, parse_layout,
+                            random_int_layout, random_layout, random_sources)
 
 
 def test_random_int_layout_mm_grid():
@@ -512,11 +512,13 @@ def test_refraction_sweep_over_v1_init(tmp_path):
     assert (df["err"] < 1e-4).all()          # both starts reach the solution
 
 
-def test_dashboard_refraction_method_needs_head_layout():
-    """AppTest 回归：只选折射定位器（正演保持均质、布置仍是角点）时，
-    面板不得把 aelib 的英文 ValueError 原样抛给用户——侧栏出现中文
-    警告、结果区给出带\"压头\"指引的中文错误并停止；同时\"压头（折射）\"
-    布置选项此时就应出现（不必先切正演模型）。"""
+def test_dashboard_refraction_method_needs_two_media():
+    """AppTest 回归（两介质推广后语义）：(a) 只选折射定位器、布置仍是
+    角点（正演保持均质）——角点传感器现在是合法的介质 1 直线射线传感器，
+    面板应当直接跑通而不是报错；\"压头（折射）/组合体（两介质）\"布置
+    选项此时就出现（不必先切正演模型）。(b) 自定义输入\"同时在两个轴向
+    上出界\"的传感器 -> 侧栏中文警告 + 结果区中文错误并停止，aelib 的
+    英文 ValueError 不外露。"""
     import pytest
     pytest.importorskip("streamlit")
     from pathlib import Path
@@ -537,19 +539,15 @@ def test_dashboard_refraction_method_needs_head_layout():
     at.run()
     assert not at.exception
 
-    # 只切方法 -> 角点布置不满足压头几何：中文警告 + 中文错误 + 不抛异常
+    # 只切方法 -> 角点布置（介质 1 表面）合法：直接可运行
     next(r for r in at.sidebar.radio
          if "定位算法" in r.label).set_value("折射路径 (locRP)")
     at.run()
     assert not at.exception, [e.value for e in at.exception]
+    assert not at.error
     place_opts = next(r for r in at.sidebar.radio
                       if "传感器布置" in r.label).options
-    assert "压头（折射）" in place_opts          # 无需先切正演模型即可选
-    assert any("压头" in w.value for w in at.sidebar.warning)
-    errs = [e.value for e in at.error]
-    assert any("压头" in e for e in errs), errs
-    assert not any("GeigerLocator" in e or "inside the specimen" in e
-                   for e in errs)                # 英文原始错误不再外露
+    assert "压头（折射）" in place_opts and "组合体（两介质）" in place_opts
 
     # 按指引切到压头布置（正演仍为均质 = 折射法吃错模型的数据）：可运行
     next(r for r in at.sidebar.radio
@@ -557,3 +555,124 @@ def test_dashboard_refraction_method_needs_head_layout():
     at.run()
     assert not at.exception, [e.value for e in at.exception]
     assert not at.error
+
+    # 自定义输入两轴出界的传感器 -> 中文警告 + 中文闸门，英文错误不外露
+    next(r for r in at.sidebar.radio
+         if "传感器布置" in r.label).set_value("自定义")
+    at.run()                                   # 文本框变为可编辑
+    bad = "\n".join(["-20,29,17", "-20,-20,50", "120,40,60",
+                     "60,-25,80", "50,70,-20", "30,60,110"])
+    next(t for t in at.sidebar.text_area
+         if "传感器坐标" in t.label).set_value(bad)
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert any("介质" in w.value for w in at.sidebar.warning)
+    errs = [e.value for e in at.error]
+    assert any("介质" in e for e in errs), errs
+    assert not any("axes" in e or "sensor (" in e for e in errs)
+
+
+def test_composite_layout_geometry():
+    """composite_layout: per_face sensors on each block's 5 OUTER faces
+    (shared interface carries none) -> 10*per_face total; block-A sensors
+    lie on A's boundary (medium 1), block-B sensors beyond the interface
+    on exactly one axis (medium 2); deterministic; rejects bad args."""
+    lay = composite_layout((0.1, 0.1, 0.2), interface_frac=0.4, per_face=1,
+                           seed=4)
+    assert len(lay) == 10
+    lo, hi = np.zeros(3), np.array([0.1, 0.1, 0.2])
+    x0 = 0.4 * 0.1
+    n_in = n_out = 0
+    for p in lay.values():
+        on_face = (np.isclose(p, lo).any() or np.isclose(p, hi).any()
+                   or np.isclose(p[0], x0))
+        # 出界按介质 1（块 A）边界判断：恰在一个轴向上出界才属介质 2
+        out = [a for a in range(3)
+               if p[a] < 0.0 or p[a] > (x0 if a == 0 else hi[a])]
+        assert on_face, f"sensor {p} not on any outer face"
+        if p[0] <= x0:                       # block A: on/in A's bounds
+            assert not out
+            n_in += 1
+        else:                                # block B: beyond x0 on ONE axis
+            assert out == [0], f"block-B sensor {p} outside on {out}"
+            n_out += 1
+    assert n_in == 5 and n_out == 5
+    assert not any(np.isclose(p[0], x0) for p in lay.values())  # 界面无传感器
+    assert composite_layout((0.1, 0.1, 0.2), 0.4, 1,
+                            seed=4) == lay                     # deterministic
+    for kwargs in ({"size": (0.1, 0.1)}, {"interface_frac": 0.0},
+                   {"interface_frac": 1.0}, {"per_face": 0}):
+        try:
+            composite_layout(**{**{"size": (0.1, 0.1, 0.1),
+                                   "interface_frac": 0.5, "per_face": 1,
+                                   "seed": 1}, **kwargs})
+            raise AssertionError("must reject bad args")
+        except ValueError:
+            pass
+
+
+def test_composite_scenario_round_trip_both_blocks():
+    """Composite scenario end to end: sensors on both blocks (medium 1
+    surface + medium 2), sources in BOTH blocks, clean arrivals ->
+    RefractionLocator recovers position + v1 and auto-detects the
+    source's medium (aelib two-media generalization)."""
+    sensors = composite_layout((0.1, 0.1, 0.1), interface_frac=0.5,
+                               per_face=2, seed=6)
+    src_a = np.array([0.03, 0.04, 0.06])       # block A (medium 1)
+    src_b = np.array([0.07, 0.06, 0.04])       # block B (medium 2)
+    box_a = ((0.0, 0.0, 0.0), (0.05, 0.1, 0.1))
+    v1, v2 = 5300.0, 6800.0
+    sc = Scenario(sensors=sensors, sources=np.stack([src_a, src_b]),
+                  velocity=v1, model="refraction", head_velocity=v2,
+                  box=box_a, seed=1)
+    loc = RefractionLocator(sensors, box=box_a, velocity=v2,
+                            head_velocity=v2)
+    df = run_trials(loc, sc)
+    assert len(df) == 2 and df["err"].notna().all()
+    assert (df["err"] < 1e-4).all()            # clean -> numerical precision
+    assert df["converged"].all()
+    assert (abs(df["velocity"] - v1) < 1.0).all()
+    # per-source medium detection through a direct locate call
+    from locbench.synth import make_arrivals
+    for src, side in ((src_a, 1), (src_b, 2)):
+        arr, _ = make_arrivals(sensors, src, velocity=v1, model="refraction",
+                               head_velocity=v2, box=box_a, seed=5)
+        res = loc.locate(arr, true_coords=src)
+        assert res.extra["source_medium"] == side
+        assert res.extra["true_error"] < 1e-4
+
+
+def test_dashboard_composite_flow():
+    """AppTest：组合体（两介质）正演 + 组合体布置 + 折射定位器的完整
+    流程可运行（无异常/无错误），切回 Geiger 在同一场景上也不报错。"""
+    import pytest
+    pytest.importorskip("streamlit")
+    from pathlib import Path
+    from streamlit.testing.v1 import AppTest
+
+    app = Path(__file__).resolve().parents[1] / "locbench" / "app.py"
+    at = AppTest.from_file(str(app), default_timeout=300)
+    at.run()
+    assert not at.exception
+    next(r for r in at.sidebar.radio if "震源布置" in r.label).set_value("随机震源")
+    at.run()
+    next(s for s in at.sidebar.slider if s.label == "震源数").set_value(3)
+    next(t for t in at.text_input
+         if t.label.startswith("取值")).set_value("5300")
+    next(r for r in at.sidebar.radio
+         if "到时正演" in r.label).set_value("组合体（两介质）")
+    at.run()
+    place = next(r for r in at.sidebar.radio if "传感器布置" in r.label)
+    assert "组合体（两介质）" in place.options
+    place.set_value("组合体（两介质）")
+    at.run()
+    next(r for r in at.sidebar.radio
+         if "定位算法" in r.label).set_value("折射路径 (locRP)")
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert not at.error, [e.value for e in at.error]
+    assert any(m.value == "100%" for m in at.metric)      # 收敛率卡片
+    next(r for r in at.sidebar.radio
+         if "定位算法" in r.label).set_value("Geiger")
+    at.run()
+    assert not at.exception and not at.error

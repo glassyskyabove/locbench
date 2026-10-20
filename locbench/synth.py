@@ -13,8 +13,9 @@ from typing import Dict, Optional, Tuple
 import numpy as np
 
 __all__ = ["corners_layout", "feature_layout", "head_layout",
-           "random_layout", "random_int_layout", "coplanar_layout",
-           "random_sources", "grid_sources", "parse_layout", "make_arrivals"]
+           "composite_layout", "random_layout", "random_int_layout",
+           "coplanar_layout", "random_sources", "grid_sources",
+           "parse_layout", "make_arrivals"]
 
 
 def random_int_layout(n_sensors: int, extent=(100, 100, 200),
@@ -232,6 +233,41 @@ def head_layout(size, per_face: int = 2, offset: float = 0.01,
                     if tries > 20_000:            # crowded face: relax floor
                         min_spacing *= 0.5
                         tries = 0
+                pts.append(p)
+    return {i + 1: tuple(float(v) for v in p) for i, p in enumerate(pts)}
+
+
+def composite_layout(size, interface_frac: float = 0.5, per_face: int = 1,
+                     seed=None, rng=None) -> Dict[int, tuple]:
+    """Sensors on BOTH blocks of a composite specimen (3-D only): block A
+    = [0, f*size_x] x [0, size_y] x [0, size_z] (medium 1) bonded to
+    block B = [f*size_x, size_x] x ... (medium 2) across the x = f*size_x
+    interface.  ``per_face`` random in-plane sensors on each block's 5
+    OUTER faces (the shared interface face carries none) -> 10*per_face
+    sensors, keys 1..n (block A first), deterministic given ``seed``;
+    SI units.  Pair with ``Scenario(model="refraction", box=<block A
+    bounds>, head_velocity=<block B velocity>)`` and aelib's
+    RefractionLocator (its two-media generalization)."""
+    rng = _rng(rng, seed)
+    size = np.asarray(size, dtype=float)
+    if size.size != 3:
+        raise ValueError("组合体布置需要三维尺寸（x, y, z）")
+    if not 0.0 < interface_frac < 1.0:
+        raise ValueError("界面比例需要在 (0, 1) 内")
+    if per_face < 1:
+        raise ValueError("每个面的传感器数至少为 1")
+    x0 = interface_frac * size[0]
+    pts: list = []
+    for x_lo, x_hi in ((0.0, x0), (x0, size[0])):      # block A, then B
+        for face in range(5):                          # 5 outer faces
+            for _ in range(per_face):
+                p = rng.uniform(0.05 * size, 0.95 * size)
+                p[0] = rng.uniform(x_lo + 0.05 * (x_hi - x_lo),
+                                   x_hi - 0.05 * (x_hi - x_lo))
+                if face < 4:                           # ±y / ±z faces
+                    p[(face // 2) + 1] = (face % 2) * size[(face // 2) + 1]
+                else:                                  # this block's x face
+                    p[0] = x_lo if x_lo == 0.0 else x_hi
                 pts.append(p)
     return {i + 1: tuple(float(v) for v in p) for i, p in enumerate(pts)}
 

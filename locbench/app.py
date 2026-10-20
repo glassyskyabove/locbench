@@ -53,8 +53,8 @@ if __name__ == "__main__":
                                 plot_metric_vs_param, unit_labels)
     from locbench.plots import close_fig
     from locbench.sweep import parse_values, sweep
-    from locbench.synth import (feature_layout, grid_sources, head_layout,
-                                parse_layout, random_int_layout,
+    from locbench.synth import (composite_layout, feature_layout, grid_sources,
+                                head_layout, parse_layout, random_int_layout,
                                 random_sources)
 
     st.set_page_config(page_title="locbench", page_icon="\U0001F3AF",
@@ -127,27 +127,45 @@ if __name__ == "__main__":
         lx, ly, lz = lx_in * u_sz, ly_in * u_sz, lz_in * u_sz     # -> m
         st.subheader("波速模型")
         model_label = st.radio(
-            "到时正演", ["均质（直线传播）", "折射（试样 + 压头）"],
+            "到时正演", ["均质（直线传播）", "折射（试样 + 压头）",
+                         "组合体（两介质）"],
             help="合成到时用的传播模型。均质：t = d/v，单一波速直线传播；"
                  "折射（Rui et al. 2024）：试样盒内波速 v₁，压头已知波速 "
                  "v₂，波在界面按 Snell 折射——传感器须装在压头上"
-                 "（布置选\"压头\"）。折射模型下 Geiger 有随 v₁/v₂ 偏离 1 "
-                 "增大的系统偏差，折射定位器则联合反演 v₁")
-        is_refr = model_label.startswith("折射")
+                 "（布置选\"压头\"）；组合体：试样沿 x 向分成两块（界面比例"
+                 "可调），块 A 波速 v₁、块 B 已知波速 v₂，传感器贴两块表面"
+                 "（布置选\"组合体\"），震源可在任一块内。非均质模型下 "
+                 "Geiger 有随 v₁/v₂ 偏离 1 增大的系统偏差，折射定位器则"
+                 "联合反演 v₁ 并自动判别震源所在介质")
+        is_refr = not model_label.startswith("均质")
+        is_comp = model_label.startswith("组合体")
+        # 介质 1（块 A）边界，米：组合体 = 界面左侧块，其余 = 整试样盒
+        refr_box = ((0.0, 0.0, 0.0), (lx, ly, lz))
+        if is_comp:
+            st.caption(f"块 A = [0, 界面]×[0, y]×[0, z]，块 B = [界面, x]"
+                       f"×[0, y]×[0, z]，界面为 x = 比例×x 尺寸的平面")
+            frac = st.slider("界面位置（x 向比例）", 0.1, 0.9, 0.5, 0.05)
+            refr_box = ((0.0, 0.0, 0.0), (frac * lx, ly, lz))
         # 定位算法单选框在侧栏更下方才创建，但用户改动后 session_state
         # 在本次重跑一开始就已更新——提前读它，布置选项就能跟随方法联动
         is_rp_now = str(st.session_state.get("loc_method", "Geiger")
                         ).startswith("折射")
-        place_label = st.radio(
-            "传感器布置", ["几何特征", "随机", "自定义"]
-            + (["压头（折射）"] if (is_refr or is_rp_now) and is_3d else []),
-            help=("压头（折射）＝试样盒六个面外各布若干传感器"
-                  "（折射定位器 / 折射正演的适用布置）"
-                  if (is_refr or is_rp_now) else None))
+        place_opts = ["几何特征", "随机", "自定义"]
+        if is_3d and not is_comp and (is_refr or is_rp_now):
+            place_opts.append("压头（折射）")
+        if is_3d and (is_comp or is_rp_now):
+            place_opts.append("组合体（两介质）")
+        place_label = st.radio("传感器布置", place_opts,
+                               help=("压头（折射）＝试样盒六个面外各布若干"
+                                     "传感器（折射正演的经典布置）；组合体"
+                                     "（两介质）＝两块的外表面各布若干传感器"
+                                     "（介质 1/2 表面贴装）"
+                                     if (is_refr or is_rp_now) else None))
         kind = f"{'3d' if is_3d else '2d'}-" + {"几何特征": "feature",
                                                 "随机": "random",
                                                 "自定义": "custom",
-                                                "压头（折射）": "head"}[place_label]
+                                                "压头（折射）": "head",
+                                                "组合体（两介质）": "comp"}[place_label]
         n_wanted = st.slider("传感器数", 4, 32, 8) if place_label == "随机" else 0
 
         def _fmt_layout(m_pts):
@@ -226,6 +244,19 @@ if __name__ == "__main__":
                             offset=head_off_in * u_sz, seed=seed_gen).values())
             st.caption(f"压头布置 = 六个面（±x/±y/±z）各 {int(n_per_face)} 个"
                        f"传感器，共 {6 * int(n_per_face)} 个，全部在试样盒外")
+        elif place_label == "组合体（两介质）":
+            n_per_face_c = st.number_input(
+                "每块每个面传感器数", 1, 8, 1,
+                help="两块各自 5 个外表面（不含界面）上各布 n 个传感器"
+                     "（面内随机位置），共 10n 个")
+            seed_gen = st.session_state.get("seed", 0)
+            st.session_state["layout_text"] = _fmt_layout(
+                composite_layout((lx, ly, lz), interface_frac=frac,
+                                 per_face=int(n_per_face_c),
+                                 seed=seed_gen).values())
+            st.caption(f"组合体布置 = 块 A（x < {frac * lx_in:.4g}{sz_unit}）"
+                       f"与块 B 各 5 个外表面 × {int(n_per_face_c)} 个，共 "
+                       f"{10 * int(n_per_face_c)} 个，贴两块表面（无压头）")
         elif "layout_text" not in st.session_state:
             ex = ([(0, 0, 0), (100, 0, 0), (0, 100, 0), (100, 100, 0), (50, 50, 100)]
                   if is_3d else [(0, 0), (100, 0), (0, 100), (100, 100)])
@@ -236,8 +267,9 @@ if __name__ == "__main__":
             "传感器坐标（每行一个，逗号分隔）", key="layout_text", height=140,
             disabled=place_label != "自定义",
             help=f"每行一个传感器：{'x,y,z' if is_3d else 'x,y'}；单位与显示单位"
-                 f"一致（当前 {disp_unit}）；支持 # 注释行。几何特征/随机/压头"
-                 f"模式显示生成的坐标（不可编辑），切到\"自定义\"可在此基础上修改")
+                 f"一致（当前 {disp_unit}）；支持 # 注释行。几何特征/随机/压头/"
+                 f"组合体模式显示生成的坐标（不可编辑），切到\"自定义\"可在此基础上"
+                 f"修改")
         try:
             custom = parse_layout(custom_txt, n_components=3 if is_3d else 2,
                                   to_m=1.0 / factor)
@@ -252,32 +284,32 @@ if __name__ == "__main__":
                        f"增加等分点数")
         custom_key = tuple(sorted(custom.items()))
 
-        # 压头几何预检：折射正演与折射定位器都要求传感器恰在一个轴向上
-        # 处于试样盒 [0, 尺寸] 外（与 aelib classify_heads 同判据）。提前
-        # 在这里判掉并给中文引导，避免跑到一半才冒出 aelib 的英文错误
+        # 两介质几何预检：折射/组合体正演与折射定位器都要求每个传感器
+        # 恰在 0 或 1 个轴向上处于介质 1 边界（refr_box）之外——即装在
+        # 其中一个介质上（与 aelib classify_heads 同判据）。提前在这里
+        # 判掉并给中文引导，避免跑到一半才冒出 aelib 的英文错误
         def _head_problem():
             if not is_3d:
-                return "折射法为三维布置（试样盒 + 六面压头），当前维度为二维"
-            lo, hi = np.zeros(3), np.array([lx, ly, lz])
+                return "两介质定位为三维布置，当前维度为二维"
+            lo, hi = (np.asarray(b, dtype=float) for b in refr_box)
             for p in np.asarray(list(custom.values()), dtype=float):
                 out = [a for a in range(3) if p[a] < lo[a] or p[a] > hi[a]]
-                if len(out) != 1:
+                if len(out) > 1:
                     disp = ", ".join(f"{v * factor:.6g}" for v in p)
-                    why = ("在试样盒内/盒上" if not out else
-                           f"同时在 {len(out)} 个轴向上处于盒外")
-                    return (f"首个不满足的传感器（{disp_unit}）：({disp}) {why}"
-                            "——压头布置要求每个传感器恰在一个轴向上处于盒外")
+                    return (f"首个不满足的传感器（{disp_unit}）：({disp}) 同时"
+                            f"在 {len(out)} 个轴向上处于介质 1 边界外——每个"
+                            "传感器须装在其中一个介质上（介质 1 表面或恰在"
+                            "一个轴向上出界）")
             return None
 
         if (is_refr or is_rp_now):
             heads_problem = _head_problem()
             if heads_problem:
                 st.warning(
-                    f"折射{'正演' if is_refr else '定位器'}需要传感器装在压头上"
-                    f"（三维布置，每个传感器恰在一个轴向上处于试样盒外）。"
-                    f"{heads_problem}。请把\"传感器布置\"切到\"压头（折射）\"，"
-                    f"或用\"自定义\"输入盒外坐标；角点/盒内布置属均质几何，"
-                    f"配 Geiger 使用")
+                    f"折射{'正演' if is_refr else '定位器'}需要传感器装在两个"
+                    f"介质上（每个恰在 0 或 1 个轴向上处于介质 1 边界外）。"
+                    f"{heads_problem}。请把\"传感器布置\"切到\"压头（折射）\""
+                    f"或\"组合体（两介质）\"，或用\"自定义\"修改坐标")
         source_mode = st.radio("震源布置", ["随机震源", "网格震源"], index=1)
         if source_mode == "随机震源":
             n_sources = st.slider("震源数", 1, 50, 10)
@@ -333,21 +365,23 @@ if __name__ == "__main__":
                  "v₂，见下）")
         if is_refr:
             v2_true = st.number_input(
-                "压头波速 v₂ (m/s)", 100.0, 10000.0, 5605.0, 100.0,
-                help="折射模型的压头/耦合块波速（已知量，如铁 5605 m/s）；"
-                     "v₁/v₂ 偏离 1 越远，均质直线模型（Geiger）的系统偏差"
-                     "越大")
+                "第二介质波速 v₂ (m/s)", 100.0, 10000.0, 5605.0, 100.0,
+                help="折射模型 = 压头/耦合块波速、组合体 = 第二块波速"
+                     "（已知量，如铁 5605 m/s）；v₁/v₂ 偏离 1 越远，均质"
+                     "直线模型（Geiger）的系统偏差越大")
 
         st.header("定位器")
         method_label = st.radio(
             "定位算法", ["Geiger", "折射路径 (locRP)"], key="loc_method",
             help="Geiger = 均质直线模型线性化加权最小二乘（grid 初值 + LM）；"
                  "折射路径 = aelib RefractionLocator（Rui et al. 2024, IJMST "
-                 "34:521-530）：试样+压头双层折射正演，联合反演震源与试样"
-                 "波速 v₁（压头波速 v₂ 已知），LM + 迭代鲁棒加权——对粗差"
-                 "几乎免疫。需要压头布置：传感器在试样盒外（布置选\"压头"
-                 "（折射）\"）；到时正演再选\"折射\"即双层介质的完整场景，"
-                 "正演保持\"均质\"则相当于给折射法喂错模型的数据")
+                 "34:521-530 的两介质推广）：按 (源, 传感器) 所在介质分派"
+                 "直线/折射射线，联合反演震源、试样波速 v₁ 与震源所在介质"
+                 "（第二介质波速 v₂ 已知），LM + 迭代鲁棒加权——对粗差"
+                 "几乎免疫。需要传感器装在两个介质上（布置选\"压头（折射）\""
+                 "或\"组合体（两介质）\"）；到时正演再选\"折射/组合体\"即"
+                 "双层介质的完整场景，正演保持\"均质\"则相当于给折射法喂"
+                 "错模型的数据")
         is_rp = method_label.startswith("折射")
         if is_rp:
             v_used = st.number_input(
@@ -355,9 +389,10 @@ if __name__ == "__main__":
                 help="v₁ 的迭代初值（论文从压头波速起步，默认同 v₂）；"
                      "反演结果见逐试验表格的 velocity 列")
             v2_used = st.number_input(
-                "压头波速 v₂ (m/s)", 100.0, 10000.0, 5605.0, 100.0,
-                help="已知的压头波速（正演模型 v₂）；定位与合成场景的 v₂ "
-                     "独立给定——不一致即模拟\"压头波速标定错\"的情形")
+                "第二介质波速 v₂ (m/s)", 100.0, 10000.0, 5605.0, 100.0,
+                help="已知的第二介质波速（压头 / 组合体第二块，正演模型 "
+                     "v₂）；定位与合成场景的 v₂ 独立给定——不一致即模拟"
+                     "\"v₂ 标定错\"的情形")
             grid_size = st.slider(
                 "初值点个数（grid size）", 1, 64, 4,
                 help="初值网格每条轴的格点【数】，在试样盒内等分取点且含"
@@ -418,13 +453,14 @@ if __name__ == "__main__":
         damping = st.checkbox("LM 阻尼", True) if not is_rp else True
         est_v = st.checkbox("联合反演速度", False) if not is_rp else False
 
-    box3 = ((0.0, 0.0, 0.0), (lx, ly, lz))     # 试样盒（米）：布源域/折射界面
+    box3 = refr_box          # 介质 1（块 A）边界（米）：折射界面/折射初值域
     SCENARIO_KEY = ("scenario", kind, n_sensors, lx, ly, lz, custom_key,
                     source_mode, n_sources,
                     tuple(d * u_sz for d in grid_d_in), repeats,
                     seed, sigma_s, drop_p, fs_hz, v_true,
                     "refraction" if is_refr else "homogeneous",
-                    (v2_true if is_refr else 0.0))
+                    (v2_true if is_refr else 0.0),
+                    tuple(map(tuple, box3)))
     if is_rp:
         PARAMS = dict(velocity=v_used, head_velocity=v2_used,
                       grid_size=int(grid_size), margin=margin,
@@ -456,11 +492,12 @@ if __name__ == "__main__":
     def make_scenario(scenario_key):
         (_, kind, n_sensors, lx, ly, lz, custom_key, source_mode, n_sources,
          spacing, repeats, seed, sigma, drop_p, fs, v_true, model,
-         head_v) = scenario_key
+         head_v, refr_b) = scenario_key
         sensors = dict(custom_key)          # the text box is the single source
         dim = 3 if kind.startswith("3d") else 2
-        # 震源域 = 试样盒 [0, size]，与传感器包围盒解耦（部分布置如单边
-        # 传感器阵列的包围盒会退化成线/点，不能拿来布源）
+        # 震源域 = 整个试样盒 [0, size]（组合体的震源可在任一块内），与
+        # 传感器包围盒解耦（部分布置如单边传感器阵列的包围盒会退化成
+        # 线/点，不能拿来布源）
         box = (((0.0, 0.0, 0.0), (lx, ly, lz)) if dim == 3
                else ((0.0, 0.0), (lx, ly)))
         if source_mode.startswith("网格"):
@@ -471,7 +508,7 @@ if __name__ == "__main__":
                         sigma=sigma, drop_p=drop_p, fs=fs,
                         seed=seed + 2, repeats=repeats,
                         model=model, head_velocity=head_v,
-                        box=(box if model == "refraction" else None))
+                        box=(refr_b if model == "refraction" else None))
 
 
     @st.cache_data(show_spinner="定位试验运行中…")
@@ -484,13 +521,12 @@ if __name__ == "__main__":
 
 
     # ------------------------------------------------------- tab 1: results
-    # 折射正演 / 折射定位器的压头几何闸门：不满足时直接给中文引导，
+    # 折射正演 / 折射定位器的两介质几何闸门：不满足时直接给中文引导，
     # 不再让 aelib 的英文 ValueError 从构造器里冒出来
     if (is_refr or is_rp) and _head_problem():
         st.error(f"折射{'正演' if is_refr else '定位器'}无法运行：{_head_problem()}。"
-                 "请在侧栏把\"传感器布置\"切到\"压头（折射）\"（六面压头自动"
-                 "布点），或切到\"自定义\"把坐标改到试样盒外；角点/盒内布置"
-                 "属均质几何，配 Geiger 使用")
+                 "请在侧栏把\"传感器布置\"切到\"压头（折射）\"或\"组合体"
+                 "（两介质）\"，或切到\"自定义\"把不满足的坐标改掉")
         st.stop()
 
     tab_result, tab_sweep = st.tabs(["场景与结果", "参数敏感性"])
