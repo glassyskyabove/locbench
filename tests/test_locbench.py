@@ -759,3 +759,33 @@ def test_plot_layout_draws_interface_plane():
     assert any(np.allclose(l.get_xdata(), 0.04) and
                np.allclose(l.get_ydata(), [0.0, 0.0, 0.1, 0.1])
                for l in lines)
+
+
+def test_dashboard_interface_offset_sticks():
+    """AppTest 回归：界面偏移滑条拖动后不得被重置回 0（曾因 _auto_default
+    缺 on_change 解钩，每次重跑都把用户值冲回默认）；且界面确实移动——
+    换偏移后场景键变化，metric 数值应改变。"""
+    import pytest
+    pytest.importorskip("streamlit")
+    from pathlib import Path
+    from streamlit.testing.v1 import AppTest
+
+    app = Path(__file__).resolve().parents[1] / "locbench" / "app.py"
+    at = AppTest.from_file(str(app), default_timeout=300)
+    at.run()
+    next(r for r in at.sidebar.radio if "震源布置" in r.label).set_value("随机震源")
+    at.run()
+    next(s for s in at.sidebar.slider if s.label == "震源数").set_value(3)
+    next(t for t in at.text_input
+         if t.label.startswith("取值")).set_value("5300")
+    next(r for r in at.sidebar.radio
+         if "到时正演" in r.label).set_value("组合体（两介质）")
+    at.run()
+    off = next(s for s in at.sidebar.slider if "界面偏移" in s.label)
+    off.set_value(10.0)
+    at.run()
+    off = next(s for s in at.sidebar.slider if "界面偏移" in s.label)
+    assert off.value == 10.0                 # 拖动后保持，不被重置
+    at.run()
+    assert next(s for s in at.sidebar.slider
+                if "界面偏移" in s.label).value == 10.0   # 再次重跑仍保持

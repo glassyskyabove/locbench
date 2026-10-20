@@ -158,9 +158,13 @@ if __name__ == "__main__":
                      "界面（法向≈±z），0°=竖直界面")
             off_max = 0.45 * min(lx_in, ly_in, lz_in)   # 任意取向都确保切过试样
             o_step = 0.5 if sz_unit == "mm" else 0.0005
-            _auto_default("iface_off_in", 0.0)
+            # 不用 _auto_default：默认是常数 0，无需随尺寸/单位联动；且
+            # 该机制要求 on_change 解钩，漏配会把用户拖动的值在每次重跑
+            # 时重置回默认（"界面偏移无效总回 0"的根源）。无 key 时控件
+            # 标识随标签（含单位）/量程变化，改尺寸或切单位自动回 0，
+            # 恰好避免旧值带错量纲
             off_i = st.slider(
-                f"界面偏移 ({sz_unit})", -off_max, off_max, key="iface_off_in",
+                f"界面偏移 ({sz_unit})", -off_max, off_max, 0.0,
                 step=o_step,
                 help="界面沿法向离开试样中心的距离（正 = 朝法向/介质 2 一侧"
                      "平移）；范围为 ±0.45×最短边，保证界面始终切过试样") * u_sz
