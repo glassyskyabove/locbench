@@ -29,8 +29,8 @@
 pip install git+https://github.com/glassyskyabove/locbench.git
 ```
 
-适用 aelib 版本：**≥ 0.9.43**（任意取向平面界面 `interface` 自
-aelib 0.9.43 引入；两介质自 0.9.42、折射定位器自 0.9.41）。
+适用 aelib 版本：**≥ 0.9.44**（平面模式初值空侧回退修复；
+任意取向平面界面自 0.9.43、两介质自 0.9.42、折射定位器自 0.9.41）。
 
 ## 启动
 
