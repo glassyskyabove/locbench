@@ -281,13 +281,18 @@ if __name__ == "__main__":
                                    help="外层迭代次数上限，两种模式共用；"
                                         "跑满且末步 RMS 改善仍大于 tol 则标记"
                                         "未收敛")
-        tol = st.number_input("收敛判据 tol (s)", 0.0, 1e-3, 1e-6, 1e-7,
-                              format="%.1e",
+        # 默认 = 1/fs（一个采样周期，与 aelib v0.9.39 的默认语义一致）；
+        # 未手动改过 tol 时随采样率联动，改过即脱钩；fs=0 回退 1e-6
+        _auto_default("tol_in", 1.0 / fs_hz if fs_hz > 0 else 1e-6)
+        tol = st.number_input("收敛判据 tol (s)", 0.0, 1e-3, key="tol_in",
+                              step=1e-7, format="%.1e",
+                              on_change=lambda: _unset_auto("tol_in"),
                               help="相邻两次迭代加权残差 RMS 的改善量小于 tol "
-                                   "即判定收敛。默认 1e-6 s（1 µs，与到时误差"
-                                   "同量级）——更小的 tol 会沿弱辨识方向过度"
-                                   "迭代、拟合噪声；0 = 关闭该判据，仅靠停滞"
-                                   "判据或 max_iter 终止")
+                                   "即判定收敛。默认 1/fs = 一个采样周期"
+                                   "（如 10 MHz → 1e-7 s，采样分辨率以下的"
+                                   "改善是噪声）；改采样率会联动此默认，手动"
+                                   "改过 tol 后不再联动；0 = 关闭该判据，"
+                                   "仅靠停滞判据或 max_iter 终止")
         damping = st.checkbox("LM 阻尼", True)
         est_v = st.checkbox("联合反演速度", False)
 
