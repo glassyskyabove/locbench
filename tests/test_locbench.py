@@ -558,20 +558,28 @@ def test_dashboard_refraction_method_needs_two_media():
     assert not at.exception, [e.value for e in at.exception]
     assert not at.error
 
-    # 自定义输入两轴出界的传感器 -> 中文警告 + 中文闸门，英文错误不外露
+    # 自定义输入两轴出界的传感器：均质正演 + 折射定位器 = 盒面模式 ->
+    # 中文警告 + 中文闸门，英文错误不外露；切到组合体正演（平面分界）->
+    # 任意位置合法，同样的坐标直接可运行
     next(r for r in at.sidebar.radio
          if "传感器布置" in r.label).set_value("自定义")
     at.run()                                   # 文本框变为可编辑
-    bad = "\n".join(["-20,29,17", "-20,-20,50", "120,40,60",
-                     "60,-25,80", "50,70,-20", "30,60,110"])
+    outside = "\n".join(["-20,29,17", "-20,-20,50", "120,40,60",
+                         "60,-25,80", "50,70,-20", "30,60,110"])
     next(t for t in at.sidebar.text_area
-         if "传感器坐标" in t.label).set_value(bad)
+         if "传感器坐标" in t.label).set_value(outside)
     at.run()
     assert not at.exception, [e.value for e in at.exception]
-    assert any("介质" in w.value for w in at.sidebar.warning)
+    assert any("试样盒外" in w.value for w in at.sidebar.warning)
     errs = [e.value for e in at.error]
-    assert any("介质" in e for e in errs), errs
+    assert any("试样盒外" in e for e in errs), errs
     assert not any("axes" in e or "sensor (" in e for e in errs)
+    # 切到组合体正演：平面分界，同一布置直接可运行
+    next(r for r in at.sidebar.radio
+         if "到时正演" in r.label).set_value("组合体（两介质）")
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert not at.error
 
 
 def test_composite_layout_geometry():
