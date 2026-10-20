@@ -265,6 +265,23 @@ def test_feature_layout_edges_and_faces():
     assert random_sources(5, sensors, seed=1).shape == (5, 3)
 
 
+def test_sweep_plot_tol_log_axis():
+    """tol 扫描图 x 轴：全正取值 -> log；含 0（关闭判据档）-> symlog。"""
+    import matplotlib
+    matplotlib.use("Agg")
+    from locbench.plots import plot_metric_vs_param
+    rows = []
+    for tol in (0.0, 1e-8, 1e-7, 1e-6, 1e-5):      # 默认 tol 扫描取值
+        rows += [{"tol": tol, "err": 0.001 + 1e5 * tol, "runtime_ms": 1.0}
+                 for _ in range(3)]
+    df = pd.DataFrame(rows)
+    ax = plot_metric_vs_param(df, "tol", metric="err").axes[0]
+    assert ax.get_xscale() == "symlog"             # 含 0 -> symlog
+    df2 = df[df["tol"] > 0]
+    ax2 = plot_metric_vs_param(df2, "tol", metric="err").axes[0]
+    assert ax2.get_xscale() == "log"               # 全正 -> log
+
+
 def test_display_unit_scaling():
     """Distance displays scale m -> mm without touching the data layer."""
     import matplotlib

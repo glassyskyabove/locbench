@@ -230,6 +230,17 @@ def plot_metric_vs_param(df, param: str, metric: str = "err",
         ax.plot(x, center.values, marker="o", label=label)
         ax.fill_between(x, lo.values, hi.values, alpha=0.2)
     ax.set_xlabel(PARAM_LABELS.get(param, param))
+    if param == "tol":
+        # tol 跨数量级（如 0 ~ 1e-5），线性轴会挤在 0 附近。全为正时用
+        # 对数轴；含 0（"关闭判据"档）时用 symlog——0 落在最左端的线性
+        # 段，正值区仍呈对数间距
+        xs = df[param].dropna()
+        pos = xs[xs > 0]
+        if len(pos):
+            if (xs == 0).any():
+                ax.set_xscale("symlog", linthresh=float(pos.min()) / 10)
+            else:
+                ax.set_xscale("log")
     if metric == "err":
         ylab = f"定位误差 ({dist_unit})"
     else:
