@@ -8,8 +8,9 @@ from locbench.evaluate import Scenario, run_trials, summarize
 from locbench.sweep import sweep
 from locbench.synth import (composite_layout, corners_layout,
                             coplanar_layout, feature_layout, grid_sources,
-                            head_layout, make_arrivals, parse_layout,
-                            random_int_layout, random_layout, random_sources)
+                            head_layout, interface_plane, make_arrivals,
+                            parse_layout, random_int_layout, random_layout,
+                            random_sources)
 
 
 def test_random_int_layout_mm_grid():
@@ -573,51 +574,49 @@ def test_dashboard_refraction_method_needs_two_media():
 
 
 def test_composite_layout_geometry():
-    """composite_layout: per_face sensors on each block's 5 OUTER faces
-    (shared interface carries none) -> 10*per_face total; block-A sensors
-    lie on A's boundary (medium 1), block-B sensors beyond the interface
-    on exactly one axis (medium 2); deterministic; rejects bad args."""
-    lay = composite_layout((0.1, 0.1, 0.2), interface_frac=0.4, per_face=1,
-                           seed=4)
-    assert len(lay) == 10
+    """composite_layout: per_face sensors on each of the specimen's 6 outer
+    faces (6*per_face total), interface-agnostic (media are decided by
+    the plane at use time); deterministic; rejects bad args.
+    interface_plane: slider angles -> (point, normal) with the documented
+    conventions (phi/psi spherical normal, offset fraction of the extent
+    along n)."""
+    lay = composite_layout((0.1, 0.1, 0.2), per_face=1, seed=4)
+    assert len(lay) == 6
     lo, hi = np.zeros(3), np.array([0.1, 0.1, 0.2])
-    x0 = 0.4 * 0.1
-    n_in = n_out = 0
     for p in lay.values():
-        on_face = (np.isclose(p, lo).any() or np.isclose(p, hi).any()
-                   or np.isclose(p[0], x0))
-        # 出界按介质 1（块 A）边界判断：恰在一个轴向上出界才属介质 2
-        out = [a for a in range(3)
-               if p[a] < 0.0 or p[a] > (x0 if a == 0 else hi[a])]
+        on_face = (np.isclose(p, lo).any() or np.isclose(p, hi).any())
         assert on_face, f"sensor {p} not on any outer face"
-        if p[0] <= x0:                       # block A: on/in A's bounds
-            assert not out
-            n_in += 1
-        else:                                # block B: beyond x0 on ONE axis
-            assert out == [0], f"block-B sensor {p} outside on {out}"
-            n_out += 1
-    assert n_in == 5 and n_out == 5
-    assert not any(np.isclose(p[0], x0) for p in lay.values())  # 界面无传感器
-    assert composite_layout((0.1, 0.1, 0.2), 0.4, 1,
+        assert (p >= lo).all() and (p <= hi).all()
+    assert composite_layout((0.1, 0.1, 0.2), per_face=1,
                             seed=4) == lay                     # deterministic
-    for kwargs in ({"size": (0.1, 0.1)}, {"interface_frac": 0.0},
-                   {"interface_frac": 1.0}, {"per_face": 0}):
+    for kwargs in ({"size": (0.1, 0.1)}, {"per_face": 0}):
         try:
-            composite_layout(**{**{"size": (0.1, 0.1, 0.1),
-                                   "interface_frac": 0.5, "per_face": 1,
+            composite_layout(**{**{"size": (0.1, 0.1, 0.1), "per_face": 1,
                                    "seed": 1}, **kwargs})
             raise AssertionError("must reject bad args")
         except ValueError:
             pass
+    # 界面平面：方位/倾角球坐标法向 + 沿法向偏移
+    pt, n = interface_plane((0.1, 0.1, 0.1), phi_deg=0.0, psi_deg=0.0,
+                            offset_frac=0.0)
+    assert np.allclose(n, (1.0, 0.0, 0.0)) and np.allclose(pt, (0.05,) * 3)
+    pt2, n2 = interface_plane((0.1, 0.1, 0.1), 90.0, 0.0, 0.0)
+    assert np.allclose(n2, (0.0, 1.0, 0.0))                     # 方位 90°=+y
+    pt3, n3 = interface_plane((0.1, 0.1, 0.1), 0.0, 89.0, 0.0)
+    assert n3[2] > 0.999 and abs(n3[0]) < 0.02                  # ≈+z 水平界面
+    pt4, n4 = interface_plane((0.1, 0.1, 0.1), 0.0, 0.0, 0.2)   # 沿 +x 偏
+    assert np.allclose(n4, (1.0, 0.0, 0.0))
+    assert np.isclose(pt4[0], 0.05 + 0.2 * 0.1)                 # 0.2×跨度
+    pt5, _ = interface_plane((0.1, 0.1, 0.1), 45.0, 0.0, 0.0)   # 45° 斜界
+    assert np.isclose(pt5[0], pt5[1])
 
 
 def test_composite_scenario_round_trip_both_blocks():
-    """Composite scenario end to end: sensors on both blocks (medium 1
-    surface + medium 2), sources in BOTH blocks, clean arrivals ->
-    RefractionLocator recovers position + v1 and auto-detects the
-    source's medium (aelib two-media generalization)."""
-    sensors = composite_layout((0.1, 0.1, 0.1), interface_frac=0.5,
-                               per_face=2, seed=6)
+    """Composite scenario end to end (box-faces geometry: box = block A):
+    sensors on the specimen faces split between the media by the block-A
+    bounds, sources in BOTH blocks, clean arrivals -> RefractionLocator
+    recovers position + v1 and auto-detects the source's medium."""
+    sensors = composite_layout((0.1, 0.1, 0.1), per_face=2, seed=6)
     src_a = np.array([0.03, 0.04, 0.06])       # block A (medium 1)
     src_b = np.array([0.07, 0.06, 0.04])       # block B (medium 2)
     box_a = ((0.0, 0.0, 0.0), (0.05, 0.1, 0.1))
@@ -633,13 +632,59 @@ def test_composite_scenario_round_trip_both_blocks():
     assert df["converged"].all()
     assert (abs(df["velocity"] - v1) < 1.0).all()
     # per-source medium detection through a direct locate call
-    from locbench.synth import make_arrivals
     for src, side in ((src_a, 1), (src_b, 2)):
         arr, _ = make_arrivals(sensors, src, velocity=v1, model="refraction",
                                head_velocity=v2, box=box_a, seed=5)
         res = loc.locate(arr, true_coords=src)
         assert res.extra["source_medium"] == side
         assert res.extra["true_error"] < 1e-4
+
+
+def test_tilted_interface_scenario_round_trip():
+    """Plane-mode composite with a 45-degree interface (the new自由
+    orientation): Scenario carries interface=(point, normal), synthesis
+    and locator use aelib's plane forward model; sources on both sides
+    are recovered exactly with the right source_medium and v1.  A
+    vertical y-normal plane (phi=90) also round-trips -- axis freedom."""
+    v1, v2 = 5300.0, 6800.0
+    box = ((0.0, 0.0, 0.0), (0.1, 0.1, 0.1))
+    for phi in (45.0, 90.0):
+        sensors = composite_layout((0.1, 0.1, 0.1), per_face=2, seed=6)
+        pt, n = interface_plane((0.1, 0.1, 0.1), phi_deg=phi, psi_deg=0.0,
+                                offset_frac=0.0)
+        n_arr = np.asarray(n)
+        c = float(n_arr @ np.asarray(pt))
+        S = np.asarray(list(sensors.values()))
+        assert 3 <= int((S @ n_arr > c).sum()) <= 9    # sensors both sides
+        src_a = np.array([0.03, 0.01, 0.05]) if phi == 45.0 \
+            else np.array([0.08, 0.04, 0.05])
+        src_b = np.array([0.09, 0.06, 0.04]) if phi == 45.0 \
+            else np.array([0.02, 0.06, 0.04])
+        assert n_arr @ src_a < c and n_arr @ src_b > c
+        sc = Scenario(sensors=sensors, sources=np.stack([src_a, src_b]),
+                      velocity=v1, model="refraction", head_velocity=v2,
+                      box=box, interface=(pt, n), seed=1)
+        loc = RefractionLocator(sensors, box=box, velocity=v2,
+                                head_velocity=v2, interface=(pt, n))
+        df = run_trials(loc, sc)
+        assert len(df) == 2 and (df["err"] < 1e-4).all()
+        assert df["converged"].all()
+        assert (abs(df["velocity"] - v1) < 1.0).all()
+        for src, side in ((src_a, 1), (src_b, 2)):
+            arr, _ = make_arrivals(sensors, src, velocity=v1,
+                                   model="refraction", head_velocity=v2,
+                                   box=box, interface=(pt, n), seed=5)
+            res = loc.locate(arr, true_coords=src)
+            assert res.extra["source_medium"] == side
+            assert res.extra["true_error"] < 1e-4
+    # v1 == v2 时平面正演退化为直线（与均质一致）
+    pt, n = interface_plane((0.1, 0.1, 0.1), 30.0, 20.0, 0.1)
+    src = np.array([0.04, 0.06, 0.03])
+    refr, _ = make_arrivals(sensors, src, velocity=5000.0, model="refraction",
+                            head_velocity=5000.0, box=box,
+                            interface=(pt, n), seed=2)
+    hom, _ = make_arrivals(sensors, src, velocity=5000.0, seed=2)
+    assert max(abs(refr[c_] - hom[c_]) for c_ in refr) < 1e-15
 
 
 def test_dashboard_composite_flow():
@@ -679,27 +724,33 @@ def test_dashboard_composite_flow():
 
 
 def test_plot_layout_draws_interface_plane():
-    """plot_layout(interface=...)：组合体界面以半透明面画进 3-D 布置图
-    （surface 计入 collections，先画使传感器/震源叠在其上）；不传则不画。
-    2-D 画虚线。"""
+    """plot_layout(interface=(点, 法向, 尺寸))：组合体界面（任意取向）以
+    「平面 ∩ 试样盒」的半透明多边形画进 3-D 布置图（先画，传感器/震源
+    叠在其上），顶点全部落在平面上且在盒内；2-D 画交线虚线；不传不画。"""
     import matplotlib
     matplotlib.use("Agg")
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
     from locbench.plots import plot_layout
-    sensors = composite_layout((0.1, 0.1, 0.1), interface_frac=0.5,
-                               per_face=1, seed=1)
+    sensors = composite_layout((0.1, 0.1, 0.1), per_face=1, seed=1)
     n_plain = len(plot_layout(sensors).axes[0].collections)
-    fig = plot_layout(sensors, interface=(0, 0.05, (0.1, 0.1, 0.1)))
+    # 45° 斜界面过试样中心
+    pt, n = interface_plane((0.1, 0.1, 0.1), phi_deg=45.0, psi_deg=0.0,
+                            offset_frac=0.0)
+    fig = plot_layout(sensors, interface=(pt, n, (0.1, 0.1, 0.1)))
     ax3 = fig.axes[0]
-    assert len(ax3.collections) == n_plain + 1      # +1 = 界面 surface
+    assert len(ax3.collections) == n_plain + 1      # +1 = 界面多边形
     surf = [c for c in ax3.collections if isinstance(c, Poly3DCollection)]
     assert len(surf) == 1
-    verts = np.asarray(surf[0]._faces)              # 界面顶点全在 x=pos
-    assert verts.shape[1] == 4                      # 一个四边形面片
-    assert np.allclose(verts[..., 0], 0.05)
-    # 2-D：界面为虚线
+    verts = np.asarray(surf[0]._faces)[0]           # 多边形顶点
+    assert 3 <= len(verts) <= 6                     # 盒内裁剪后的形状
+    d = verts @ np.asarray(n)                       # 全在平面上
+    assert np.allclose(d, float(np.asarray(n) @ np.asarray(pt)), atol=1e-6)
+    assert (verts >= -1e-9).all() and (verts <= 0.1 + 1e-9).all()  # 盒内
+    # 2-D：界面为交线虚线（x=0.04 的竖线段）
     rect = corners_layout(size=(0.1, 0.1))
-    fig2 = plot_layout(rect, interface=(0, 0.04, (0.1, 0.1)))
+    fig2 = plot_layout(rect, interface=((0.04, 0.05, 0.0), (1.0, 0.0, 0.0),
+                                        (0.1, 0.1, 1.0)))
     lines = fig2.axes[0].lines
-    assert any(len(l.get_xdata()) == 2 and
-               np.allclose(l.get_xdata(), 0.04) for l in lines)
+    assert any(np.allclose(l.get_xdata(), 0.04) and
+               np.allclose(l.get_ydata(), [0.0, 0.0, 0.1, 0.1])
+               for l in lines)

@@ -125,16 +125,56 @@ def _cjk_font():
 _cjk_font()
 
 
+def _clip_halfspace(poly, keep):
+    """Sutherland-Hodgman 一步：多边形对线性半空间 keep() 裁剪
+    （交点用二分求，免解析边界求交的边况分类；二分保持两端 keep
+    状态相反的不变式，起点为 False 时同样收敛到边界）。"""
+    if not poly:
+        return []
+    out = []
+    for i, cur in enumerate(poly):
+        prv = poly[i - 1]
+        kc, kp = keep(cur), keep(prv)
+        if kc != kp:
+            a, b = 0.0, 1.0                    # keep(a) == kp 恒成立
+            for _ in range(60):
+                mid = 0.5 * (a + b)
+                if keep(prv + mid * (cur - prv)) == kp:
+                    a = mid
+                else:
+                    b = mid
+            out.append(prv + a * (cur - prv))
+        if kc:
+            out.append(cur)
+    return out
+
+
+def _plane_polygon(point, n_hat, size):
+    """平面 n.x = n.point 与盒 [0, size]^3 的交多边形顶点（米，有序）。"""
+    ref = np.array([1.0, 0.0, 0.0]) if abs(n_hat[0]) < 0.9 \
+        else np.array([0.0, 1.0, 0.0])
+    e1 = np.cross(n_hat, ref)
+    e1 /= np.linalg.norm(e1)
+    e2 = np.cross(n_hat, e1)
+    big = 2.0 * float(np.abs(n_hat) @ size) + float(np.linalg.norm(size))
+    poly = [point + big * (a * e1 + b * e2)
+            for a, b in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+    for ax in range(3):     # 逐半空间裁剪（合并成板会漏掉整段穿越的边）
+        poly = _clip_halfspace(poly, lambda v, ax=ax: v[ax] >= 0.0)
+        poly = _clip_halfspace(poly, lambda v, ax=ax: v[ax] <= size[ax])
+    return poly
+
+
 def plot_layout(sensors: dict, sources=None, located=None,
                 unit: str = "m", factor: float = 1.0, interface=None):
     """传感器阵列布置 + 真值/定位震源；真值->定位的线段即误差向量。2-D/3-D
     跟随传感器维度。坐标按显示单位缩放（数据本身是米，``factor``
     米->显示单位，如 mm 取 1e3），轴标注带单位。
 
-    ``interface = (axis, pos, extents)`` 在 ``axis`` 向坐标 ``pos``（米）
-    处画两介质分界（组合体场景）：3-D 为覆盖 ``extents``（试样尺寸，米）
-    其余两轴范围的半透明蓝面，2-D 为虚线；None 不画。界面先画，传感器/
-    震源叠在其上。"""
+    ``interface = (point, normal, size)`` 画两介质分界面（组合体场景，
+    任意取向）：``normal`` 指向介质 2（长度任意），``size`` = 试样尺寸
+    （米）；3-D 画「平面 ∩ 试样盒」的半透明蓝色多边形（先画，使传感器/
+    震源叠在其上），2-D 画平面与二维盒的交线（虚线）；None 不画。"""
     P = np.stack([np.asarray(p, dtype=float) for p in sensors.values()]) * factor
     dim = P.shape[1]
     # 纯 OO Figure：不碰 pyplot 的全局 figure 注册表。streamlit 每个会话
@@ -146,24 +186,26 @@ def plot_layout(sensors: dict, sources=None, located=None,
     else:
         ax = fig.add_subplot()
     if interface is not None:
-        ax_i, pos, ext = interface
-        pos_d = pos * factor
+        point, n, ext = interface
+        n_hat = np.asarray(n, dtype=float)
+        n_hat = n_hat / np.linalg.norm(n_hat)
         if dim == 3:
-            others = [a for a in range(3) if a != ax_i]
-            g1 = np.array([0.0, ext[others[0]]]) * factor
-            g2 = np.array([0.0, ext[others[1]]]) * factor
-            A, B = np.meshgrid(g1, g2)
-            const = np.full_like(A, pos_d)
-            xx, yy, zz = [(const if a == ax_i else (A if a == others[0] else B))
-                          for a in range(3)]
-            ax.plot_surface(xx, yy, zz, alpha=0.12, color="tab:blue",
-                            shade=False, linewidth=0)
-        elif ax_i == 0:
-            ax.plot([pos_d, pos_d], [0.0, ext[1] * factor], "--",
-                    c="tab:blue", lw=1.2, alpha=0.7)
+            poly = _plane_polygon(np.asarray(point, dtype=float), n_hat,
+                                  np.asarray(ext, dtype=float))
+            if len(poly) >= 3:
+                from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+                verts = np.asarray(poly) * factor
+                ax.add_collection3d(Poly3DCollection(
+                    [verts], alpha=0.12, facecolor="tab:blue", edgecolor="none"))
         else:
-            ax.plot([0.0, ext[0] * factor], [pos_d, pos_d], "--",
-                    c="tab:blue", lw=1.2, alpha=0.7)
+            poly = _plane_polygon(
+                np.array([point[0], point[1], 0.0]),
+                np.array([n_hat[0], n_hat[1], 0.0]),
+                np.array([ext[0], ext[1], 1.0]))
+            if len(poly) >= 2:
+                seg = np.asarray([[v[0], v[1]] for v in poly]) * factor
+                ax.plot(seg[:, 0], seg[:, 1], "--", c="tab:blue",
+                        lw=1.2, alpha=0.7)
     if dim == 3:
         ax.scatter(P[:, 0], P[:, 1], P[:, 2], marker="s", c="k",
                    label="传感器", s=28)

@@ -29,10 +29,11 @@ class Scenario:
 
     ``model`` selects the forward model that synthesizes the arrivals:
     ``"homogeneous"`` (straight line, single velocity) or
-    ``"refraction"`` (specimen-in-heads: ``velocity`` = specimen v1,
-    ``head_velocity`` = known head v2, ``box`` = specimen bounds
-    ``((x0,y0,z0),(x1,y1,z1))`` in metres, sensors on heads outside the
-    box -- the RefractionLocator geometry; see aelib).
+    ``"refraction"`` (two-media: ``velocity`` = medium-1 v1,
+    ``head_velocity`` = known medium-2 v2, geometry either ``box``-faces
+    with sensors on heads outside ``box`` = ``((x0,y0,z0),(x1,y1,z1))``
+    in metres, or a single arbitrarily-oriented ``interface =
+    (point, normal)`` plane (normal into medium 2) -- see aelib).
     """
     sensors: dict
     sources: np.ndarray            # (n, dim) known truth
@@ -45,8 +46,9 @@ class Scenario:
     seed: int = 0
     repeats: int = 1
     model: str = "homogeneous"     # "homogeneous" | "refraction"
-    head_velocity: float = 0.0     # refraction model: known head v2, m/s
-    box: tuple = None              # refraction model: specimen bounds (m)
+    head_velocity: float = 0.0     # refraction model: known medium-2 v2, m/s
+    box: tuple = None              # refraction box-faces mode: bounds (m)
+    interface: tuple = None        # refraction plane mode: (point, normal)
 
 
 def run_trials(locator, scenario: Scenario) -> pd.DataFrame:
@@ -69,7 +71,8 @@ def run_trials(locator, scenario: Scenario) -> pd.DataFrame:
                 scenario.sensors, src, scenario.velocity, t0=t0_true,
                 sigma=scenario.sigma, drop_p=scenario.drop_p,
                 fs=scenario.fs, rng=rng, model=scenario.model,
-                head_velocity=scenario.head_velocity, box=scenario.box)
+                head_velocity=scenario.head_velocity, box=scenario.box,
+                interface=scenario.interface)
             row = dict(source=i, repeat=rep, n_picks=len(arrivals))
             t_start = time.perf_counter()
             try:

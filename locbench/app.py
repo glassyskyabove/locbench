@@ -53,8 +53,9 @@ if __name__ == "__main__":
                                 plot_metric_vs_param, unit_labels)
     from locbench.plots import close_fig
     from locbench.sweep import parse_values, sweep
-    from locbench.synth import (composite_layout, feature_layout, grid_sources,
-                                head_layout, parse_layout, random_int_layout,
+    from locbench.synth import (composite_layout, feature_layout,
+                                grid_sources, head_layout, interface_plane,
+                                parse_layout, random_int_layout,
                                 random_sources)
 
     st.set_page_config(page_title="locbench", page_icon="\U0001F3AF",
@@ -139,13 +140,27 @@ if __name__ == "__main__":
                  "联合反演 v₁ 并自动判别震源所在介质")
         is_refr = not model_label.startswith("均质")
         is_comp = model_label.startswith("组合体")
-        # 介质 1（块 A）边界，米：组合体 = 界面左侧块，其余 = 整试样盒
+        # 介质 1 边界（米）：盒面折射模式 = 整试样盒；组合体 = 任意取向的
+        # 单一分界面（方位角/倾角/偏移三滑条控制）
         refr_box = ((0.0, 0.0, 0.0), (lx, ly, lz))
+        iface = None
         if is_comp:
-            st.caption(f"块 A = [0, 界面]×[0, y]×[0, z]，块 B = [界面, x]"
-                       f"×[0, y]×[0, z]，界面为 x = 比例×x 尺寸的平面")
-            frac = st.slider("界面位置（x 向比例）", 0.1, 0.9, 0.5, 0.05)
-            refr_box = ((0.0, 0.0, 0.0), (frac * lx, ly, lz))
+            st.caption("两介质以一个可任意取向的平面分界（结果图中的蓝色面）；"
+                       "传感器贴试样外表面，落在界面哪一侧就属于哪个介质"
+                       "——布置与界面解耦，移动/倾斜界面无需重新布点")
+            phi_i = st.slider(
+                "界面法向方位角（°）", 0, 359, 0, 5,
+                help="法向水平投影的方向：0=+x，90=+y，180=−x，270=−y；"
+                     "法向指向介质 2（第二介质波速 v₂ 一侧）")
+            psi_i = st.slider(
+                "界面法向倾角（°）", -89, 89, 0, 1,
+                help="法向自水平面抬起的角度（正 = 朝 +z 抬）；±89°≈水平"
+                     "界面（法向≈±z），0°=竖直界面")
+            off_i = st.slider(
+                "界面位置偏移", -0.45, 0.45, 0.0, 0.05,
+                help="界面沿法向离开试样中心的比例（0=过试样中心），按"
+                     "试样沿法向的跨度折算")
+            iface = interface_plane((lx, ly, lz), phi_i, psi_i, off_i)
         # 定位算法单选框在侧栏更下方才创建，但用户改动后 session_state
         # 在本次重跑一开始就已更新——提前读它，布置选项就能跟随方法联动
         is_rp_now = str(st.session_state.get("loc_method", "Geiger")
@@ -246,17 +261,16 @@ if __name__ == "__main__":
                        f"传感器，共 {6 * int(n_per_face)} 个，全部在试样盒外")
         elif place_label == "组合体（两介质）":
             n_per_face_c = st.number_input(
-                "每块每个面传感器数", 1, 8, 1,
-                help="两块各自 5 个外表面（不含界面）上各布 n 个传感器"
-                     "（面内随机位置），共 10n 个")
+                "每个面传感器数", 1, 8, 2,
+                help="试样六个外表面各布 n 个传感器（面内随机位置），共 6n"
+                     "个；每个传感器落在界面哪一侧就属于哪个介质")
             seed_gen = st.session_state.get("seed", 0)
             st.session_state["layout_text"] = _fmt_layout(
-                composite_layout((lx, ly, lz), interface_frac=frac,
-                                 per_face=int(n_per_face_c),
+                composite_layout((lx, ly, lz), per_face=int(n_per_face_c),
                                  seed=seed_gen).values())
-            st.caption(f"组合体布置 = 块 A（x < {frac * lx_in:.4g}{sz_unit}）"
-                       f"与块 B 各 5 个外表面 × {int(n_per_face_c)} 个，共 "
-                       f"{10 * int(n_per_face_c)} 个，贴两块表面（无压头）")
+            st.caption(f"组合体布置 = 六个外表面 × {int(n_per_face_c)} 个，"
+                       f"共 {6 * int(n_per_face_c)} 个，贴试样表面"
+                       f"（介质归属由界面位置决定）")
         elif "layout_text" not in st.session_state:
             ex = ([(0, 0, 0), (100, 0, 0), (0, 100, 0), (100, 100, 0), (50, 50, 100)]
                   if is_3d else [(0, 0), (100, 0), (0, 100), (100, 100)])
@@ -291,6 +305,8 @@ if __name__ == "__main__":
         def _head_problem():
             if not is_3d:
                 return "两介质定位为三维布置，当前维度为二维"
+            if is_comp:
+                return None        # 平面界面：每个传感器必属一个介质
             lo, hi = (np.asarray(b, dtype=float) for b in refr_box)
             for p in np.asarray(list(custom.values()), dtype=float):
                 out = [a for a in range(3) if p[a] < lo[a] or p[a] > hi[a]]
@@ -453,14 +469,14 @@ if __name__ == "__main__":
         damping = st.checkbox("LM 阻尼", True) if not is_rp else True
         est_v = st.checkbox("联合反演速度", False) if not is_rp else False
 
-    box3 = refr_box          # 介质 1（块 A）边界（米）：折射界面/折射初值域
+    box3 = refr_box          # 介质 1 边界（米）：折射界面/折射初值域
     SCENARIO_KEY = ("scenario", kind, n_sensors, lx, ly, lz, custom_key,
                     source_mode, n_sources,
                     tuple(d * u_sz for d in grid_d_in), repeats,
                     seed, sigma_s, drop_p, fs_hz, v_true,
                     "refraction" if is_refr else "homogeneous",
                     (v2_true if is_refr else 0.0),
-                    tuple(map(tuple, box3)))
+                    tuple(map(tuple, box3)), iface)
     if is_rp:
         PARAMS = dict(velocity=v_used, head_velocity=v2_used,
                       grid_size=int(grid_size), margin=margin,
@@ -482,7 +498,9 @@ if __name__ == "__main__":
         if exclude:
             kw.pop(exclude, None)            # a swept param must not repeat
         if refr:
-            kw.update(box=box3)              # 试样盒 = 折射界面（米）
+            kw.update(box=box3)              # 介质 1 边界 = 搜索域（米）
+            if is_comp:
+                kw.update(interface=iface)   # 单一平面分界（任意取向）
         elif scenario_key[1].startswith("2d"):
             kw.update(mode="2d")
         return kw
@@ -492,7 +510,7 @@ if __name__ == "__main__":
     def make_scenario(scenario_key):
         (_, kind, n_sensors, lx, ly, lz, custom_key, source_mode, n_sources,
          spacing, repeats, seed, sigma, drop_p, fs, v_true, model,
-         head_v, refr_b) = scenario_key
+         head_v, refr_b, iface_k) = scenario_key
         sensors = dict(custom_key)          # the text box is the single source
         dim = 3 if kind.startswith("3d") else 2
         # 震源域 = 整个试样盒 [0, size]（组合体的震源可在任一块内），与
@@ -508,7 +526,8 @@ if __name__ == "__main__":
                         sigma=sigma, drop_p=drop_p, fs=fs,
                         seed=seed + 2, repeats=repeats,
                         model=model, head_velocity=head_v,
-                        box=(refr_b if model == "refraction" else None))
+                        box=(refr_b if model == "refraction" else None),
+                        interface=iface_k)
 
 
     @st.cache_data(show_spinner="定位试验运行中…")
@@ -560,7 +579,7 @@ if __name__ == "__main__":
                 located[int(r.source)] = r.coords
             fig = plot_layout(sc.sensors, sc.sources, located,
                               unit=disp_unit, factor=factor,
-                              interface=((0, refr_box[1][0], (lx, ly, lz))
+                              interface=((iface[0], iface[1], (lx, ly, lz))
                                          if is_comp else None))
             st.pyplot(fig)
             close_fig(fig)

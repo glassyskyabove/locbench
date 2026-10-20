@@ -13,9 +13,9 @@ from typing import Dict, Optional, Tuple
 import numpy as np
 
 __all__ = ["corners_layout", "feature_layout", "head_layout",
-           "composite_layout", "random_layout", "random_int_layout",
-           "coplanar_layout", "random_sources", "grid_sources",
-           "parse_layout", "make_arrivals"]
+           "composite_layout", "interface_plane", "random_layout",
+           "random_int_layout", "coplanar_layout", "random_sources",
+           "grid_sources", "parse_layout", "make_arrivals"]
 
 
 def random_int_layout(n_sensors: int, extent=(100, 100, 200),
@@ -237,39 +237,50 @@ def head_layout(size, per_face: int = 2, offset: float = 0.01,
     return {i + 1: tuple(float(v) for v in p) for i, p in enumerate(pts)}
 
 
-def composite_layout(size, interface_frac: float = 0.5, per_face: int = 1,
-                     seed=None, rng=None) -> Dict[int, tuple]:
-    """Sensors on BOTH blocks of a composite specimen (3-D only): block A
-    = [0, f*size_x] x [0, size_y] x [0, size_z] (medium 1) bonded to
-    block B = [f*size_x, size_x] x ... (medium 2) across the x = f*size_x
-    interface.  ``per_face`` random in-plane sensors on each block's 5
-    OUTER faces (the shared interface face carries none) -> 10*per_face
-    sensors, keys 1..n (block A first), deterministic given ``seed``;
-    SI units.  Pair with ``Scenario(model="refraction", box=<block A
-    bounds>, head_velocity=<block B velocity>)`` and aelib's
-    RefractionLocator (its two-media generalization)."""
+def composite_layout(size, per_face: int = 2, seed=None, rng=None) -> Dict[int, tuple]:
+    """Sensors on the 6 outer faces of the specimen box (3-D only):
+    ``per_face`` random in-plane positions per face -> 6*per_face sensors,
+    keys 1..n, deterministic given ``seed``; SI units.  Deliberately
+    DECOUPLED from the interface: whichever side of the interface plane a
+    sensor lands on is its medium (classified at use time by aelib), so
+    the plane can move/tilt freely without regenerating the layout --
+    pair with ``Scenario(model="refraction", interface=(point, normal),
+    head_velocity=<medium-2 velocity>)`` and aelib's plane-mode
+    RefractionLocator."""
     rng = _rng(rng, seed)
     size = np.asarray(size, dtype=float)
     if size.size != 3:
         raise ValueError("组合体布置需要三维尺寸（x, y, z）")
-    if not 0.0 < interface_frac < 1.0:
-        raise ValueError("界面比例需要在 (0, 1) 内")
     if per_face < 1:
         raise ValueError("每个面的传感器数至少为 1")
-    x0 = interface_frac * size[0]
     pts: list = []
-    for x_lo, x_hi in ((0.0, x0), (x0, size[0])):      # block A, then B
-        for face in range(5):                          # 5 outer faces
+    for ax in range(3):
+        for side in (0.0, 1.0):
             for _ in range(per_face):
                 p = rng.uniform(0.05 * size, 0.95 * size)
-                p[0] = rng.uniform(x_lo + 0.05 * (x_hi - x_lo),
-                                   x_hi - 0.05 * (x_hi - x_lo))
-                if face < 4:                           # ±y / ±z faces
-                    p[(face // 2) + 1] = (face % 2) * size[(face // 2) + 1]
-                else:                                  # this block's x face
-                    p[0] = x_lo if x_lo == 0.0 else x_hi
+                p[ax] = side * size[ax]
                 pts.append(p)
     return {i + 1: tuple(float(v) for v in p) for i, p in enumerate(pts)}
+
+
+def interface_plane(size, phi_deg: float = 0.0, psi_deg: float = 0.0,
+                    offset_frac: float = 0.0):
+    """The composite interface as ``(point, normal)`` (SI), from slider
+    angles: ``phi_deg`` = azimuth of the normal's horizontal projection
+    (0=+x, 90=+y), ``psi_deg`` = tilt of the normal off the horizontal
+    (+ toward +z; +-89 deg at the extremes, 90 = horizontal interface),
+    ``offset_frac`` = shift along the normal as a fraction of the
+    specimen's extent along it (0 = through the centre).  Normal points
+    into medium 2."""
+    size = np.asarray(size, dtype=float)
+    phi, psi = np.radians(phi_deg), np.radians(psi_deg)
+    n = np.array([np.cos(psi) * np.cos(phi),
+                  np.cos(psi) * np.sin(phi),
+                  np.sin(psi)])
+    n_hat = n / np.linalg.norm(n)
+    extent = float(np.abs(n_hat) @ size)          # specimen span along n
+    point = size / 2.0 + offset_frac * extent * n_hat
+    return (tuple(float(v) for v in point), tuple(float(v) for v in n_hat))
 
 
 def _rng(rng, seed):
@@ -332,18 +343,21 @@ def random_sources(n: int, sensors: dict = None, margin: float = 0.0,
 def make_arrivals(sensors: dict, source, velocity: float, t0: float = 0.0,
                   sigma: float = 0.0, drop_p: float = 0.0, fs: float = 0.0,
                   seed=None, rng=None, model: str = "homogeneous",
-                  head_velocity: float = 0.0, box=None) -> Tuple[dict, dict]:
+                  head_velocity: float = 0.0, box=None,
+                  interface=None) -> Tuple[dict, dict]:
     """Exact arrivals plus simulated pick errors.
 
     - ``model="homogeneous"`` (default): straight-line propagation
       ``t_i = t0 + |s_i - x| / v``
-    - ``model="refraction"``: two-layer specimen-in-heads forward model
-      ``t_i = t0 + D1_i/v + D2_i/head_velocity`` (aelib's
-      RefractionLocator forward model, SI): sensors must sit on heads
-      outside ``box`` = ``((x0,y0,z0),(x1,y1,z1))`` (required, metres),
-      ``velocity`` is the specimen velocity v1 and ``head_velocity``
-      the known head velocity v2.  ``v1 == v2`` degenerates to the
-      homogeneous model.
+    - ``model="refraction"``: two-media forward model (aelib's
+      RefractionLocator forward model, SI).  Either box-faces geometry
+      (sensors must sit on heads outside ``box`` = ``((x0,y0,z0),
+      (x1,y1,z1))``, required) or, when ``interface = (point, normal)``
+      is given (normal into medium 2), a SINGLE arbitrarily-oriented
+      plane splits the media and ``box`` is only a fallback.  In both
+      cases ``velocity`` is the medium-1 velocity v1 and
+      ``head_velocity`` the known medium-2 velocity v2;  ``v1 == v2``
+      degenerates to the homogeneous model.
     - ``sigma``: Gaussian picking noise per pick (s)
     - ``fs``: sampling rate (Hz) -- when > 0 the arrival times are
       quantized to the sampling period 1/fs AFTER the Gaussian noise,
@@ -359,15 +373,21 @@ def make_arrivals(sensors: dict, source, velocity: float, t0: float = 0.0,
     chs = list(sensors)
     S = np.stack([np.asarray(sensors[c], dtype=float) for c in chs])
     if model == "refraction":
-        from aelib.locate.refraction import (classify_heads,
-                                             travel_times_refraction)
-        if box is None:
-            raise ValueError("折射模型需要 box=((x0,y0,z0),(x1,y1,z1))"
-                             "（试样盒，米）")
-        lo, hi = (np.asarray(b, dtype=float) for b in box)
-        t = t0 + travel_times_refraction(np.asarray(source, dtype=float),
-                                         S, classify_heads(S, lo, hi),
-                                         velocity, head_velocity, lo, hi)
+        from aelib.locate.refraction import travel_times_refraction
+        if interface is not None:
+            # 单一平面分界：介质由位置决定，box/dirs 不参与
+            lo = hi = dirs = None
+        else:
+            if box is None:
+                raise ValueError("折射模型需要 box=((x0,y0,z0),(x1,y1,z1))"
+                                 "（介质 1 边界，米）或 interface=(点, 法向)"
+                                 "（单一分界面）")
+            from aelib.locate.refraction import classify_heads
+            lo, hi = (np.asarray(b, dtype=float) for b in box)
+            dirs = classify_heads(S, lo, hi)
+        t = t0 + travel_times_refraction(
+            np.asarray(source, dtype=float), S, dirs, velocity,
+            head_velocity, lo, hi, interface=interface)
     elif model == "homogeneous":
         d = np.linalg.norm(S - np.asarray(source, dtype=float), axis=1)
         t = t0 + d / velocity
