@@ -605,6 +605,10 @@ def test_composite_layout_geometry():
     assert np.allclose(n2, (0.0, 1.0, 0.0))                     # 方位 90°=+y
     pt3, n3 = interface_plane((0.1, 0.1, 0.1), 0.0, 89.0, 0.0)
     assert n3[2] > 0.999 and abs(n3[0]) < 0.02                  # ≈+z 水平界面
+    _, n_h = interface_plane((0.1, 0.1, 0.1), 37.0, 90.0, 0.0)  # 90°=精确 +z
+    assert n_h == (0.0, 0.0, 1.0)                               # 方位角失效
+    _, n_h2 = interface_plane((0.1, 0.1, 0.1), 37.0, -90.0, 0.0)
+    assert n_h2 == (0.0, 0.0, -1.0)
     pt4, n4 = interface_plane((0.1, 0.1, 0.1), 0.0, 0.0, 0.02)  # 沿 +x 平移 20mm
     assert np.allclose(n4, (1.0, 0.0, 0.0))
     assert np.isclose(pt4[0], 0.07) and np.isclose(pt4[1], 0.05)  # 纯长度偏移

@@ -268,15 +268,19 @@ def interface_plane(size, phi_deg: float = 0.0, psi_deg: float = 0.0,
     """The composite interface as ``(point, normal)`` (SI), from slider
     controls: ``phi_deg`` = azimuth of the normal's horizontal projection
     (0=+x, 90=+y), ``psi_deg`` = tilt of the normal off the horizontal
-    (+ toward +z; +-89 deg at the extremes, 90 = horizontal interface),
+    (+ toward +z; +-90 deg = horizontal interface, normal exactly +-z,
+    azimuth irrelevant),
     ``offset`` = the plane's signed DISTANCE (m) from the specimen centre
     along the normal (positive = toward medium 2).  Normal points into
     medium 2."""
     size = np.asarray(size, dtype=float)
-    phi, psi = np.radians(phi_deg), np.radians(psi_deg)
-    n = np.array([np.cos(psi) * np.cos(phi),
-                  np.cos(psi) * np.sin(phi),
-                  np.sin(psi)])
+    if abs(abs(psi_deg) - 90.0) < 1e-9:      # 水平界面：法向精确 ±z
+        n = np.array([0.0, 0.0, 1.0 if psi_deg > 0 else -1.0])
+    else:
+        phi, psi = np.radians(phi_deg), np.radians(psi_deg)
+        n = np.array([np.cos(psi) * np.cos(phi),
+                      np.cos(psi) * np.sin(phi),
+                      np.sin(psi)])
     n_hat = n / np.linalg.norm(n)
     point = size / 2.0 + offset * n_hat
     return (tuple(float(v) for v in point), tuple(float(v) for v in n_hat))
