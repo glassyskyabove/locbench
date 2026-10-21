@@ -438,14 +438,11 @@ if __name__ == "__main__":
                                 "小于该值则此通道在此事件中被丢弃")
         v_true = st.number_input(
 "真实波速 (m/s)", 100.0, 10000.0, 5300.0, 100.0,
-            help="合成到时用的 v₁ 波速：岩石-岩石 = 界面法向所指区域；"
-                 "压头-岩石 = 岩石试样（另一侧/压头为 v₂，见下）")
+            help="v1 的约定：岩石-岩石 = 界面法向所指一侧；压头-岩石 = 岩石试样")
         if is_refr:
             v2_true = st.number_input(
                 "波速 v2 (m/s)", 100.0, 10000.0, 5605.0, 100.0,
-                help="组合体界面的另一侧波速（已知量，如铁 5605 m/s）；"
-                     "v₁/v₂ 偏离 1 越远，均质直线模型（Geiger）的系统偏差"
-                     "越大")
+                help="v2 的约定：组合体界面的另一侧（法向背向一侧）")
 
         st.header("定位器")
         method_label = st.radio(
@@ -466,16 +463,14 @@ if __name__ == "__main__":
             v_used = st.number_input(
                 "波速 v1 (m/s)", 100.0, 10000.0, key="rp_v1",
                 step=100.0, on_change=lambda: _unset_auto("rp_v1"),
-                help="岩石-岩石：法向所指区域的波速（给定不反演）；压头-岩石："
-                     "岩石波速（反演，此为初值，默认随真实波速联动）。反演结果"
-                     "见逐试验表格的 velocity 列")
+                help="v1 的约定：岩石-岩石 = 界面法向所指一侧；压头-岩石 = "
+                     "岩石试样")
             _auto_default("rp_v2", v2_true if is_refr else v_true)
             v2_used = st.number_input(
                 "波速 v2 (m/s)", 100.0, 10000.0, key="rp_v2",
                 step=100.0, on_change=lambda: _unset_auto("rp_v2"),
-                help="岩石-岩石：法向背向区域的波速；压头-岩石：压头波速。默认 = "
-                     "场景真实 v₂（随其联动，手动改过后脱钩）；定位与合成场景"
-                     "的 v₂ 独立给定——不一致即模拟\"v₂ 标定错\"的情形")
+                help="v2 的约定：岩石-岩石 = 界面法向背向一侧；压头-岩石 = "
+                     "压头")
             if is_comp and geom_comp == "岩石-岩石":
                 # 平面模式：v1/v2 都是给定值，各自决定是否反演（二元列表）
                 inv_c1, inv_c2 = st.columns(2)
