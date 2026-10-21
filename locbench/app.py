@@ -188,7 +188,7 @@ if __name__ == "__main__":
             phi_i = st.slider(
                 "界面法向方位角（°）", 0, 359, 0, 5,
                 help="法向水平投影的方向：0=+x，90=+y，180=−x，270=−y；"
-                     "法向指向介质 2（第二介质波速 v₂ 一侧）")
+                     "法向指向 v₁ 一侧（该区域波速即 v₁）")
             psi_i = st.slider(
                 "界面法向倾角（°）", -90, 90, 0, 1,
                 help="法向自水平面抬起的角度（正 = 朝 +z 抬）；0°=竖直界面，"
@@ -437,12 +437,12 @@ if __name__ == "__main__":
                            help="每个事件对每个通道独立抽一个 [0,1) 均匀随机数，"
                                 "小于该值则此通道在此事件中被丢弃")
         v_true = st.number_input(
-            "真实波速 (m/s)", 100.0, 10000.0, 5300.0, 100.0,
-            help="合成到时用的波速。组合体模型下为介质 1 波速 v₁（介质 2 "
-                 "内为 v₂，见下）")
+"真实波速 (m/s)", 100.0, 10000.0, 5300.0, 100.0,
+            help="合成到时用的 v₁ 波速：岩石-岩石 = 界面法向所指区域；"
+                 "压头-岩石 = 岩石试样（另一侧/压头为 v₂，见下）")
         if is_refr:
             v2_true = st.number_input(
-                "第二介质波速 v₂ (m/s)", 100.0, 10000.0, 5605.0, 100.0,
+                "波速 v2 (m/s)", 100.0, 10000.0, 5605.0, 100.0,
                 help="组合体界面的另一侧波速（已知量，如铁 5605 m/s）；"
                      "v₁/v₂ 偏离 1 越远，均质直线模型（Geiger）的系统偏差"
                      "越大")
@@ -464,17 +464,18 @@ if __name__ == "__main__":
             # 随真值联动；手动改过后脱钩
             _auto_default("rp_v1", v_true)
             v_used = st.number_input(
-                "试样波速初值 v₁ (m/s)", 100.0, 10000.0, key="rp_v1",
+                "波速 v1 (m/s)", 100.0, 10000.0, key="rp_v1",
                 step=100.0, on_change=lambda: _unset_auto("rp_v1"),
-                help="v₁ 的迭代初值，默认 = 真实波速（随其联动，手动改过后"
-                     "脱钩）；反演结果见逐试验表格的 velocity 列")
+                help="岩石-岩石：法向所指区域的波速（给定不反演）；压头-岩石："
+                     "岩石波速（反演，此为初值，默认随真实波速联动）。反演结果"
+                     "见逐试验表格的 velocity 列")
             _auto_default("rp_v2", v2_true if is_refr else v_true)
             v2_used = st.number_input(
-                "第二介质波速 v₂ (m/s)", 100.0, 10000.0, key="rp_v2",
+                "波速 v2 (m/s)", 100.0, 10000.0, key="rp_v2",
                 step=100.0, on_change=lambda: _unset_auto("rp_v2"),
-                help="已知的第二介质波速，默认 = 场景真实 v₂（随其联动，"
-                     "手动改过后脱钩）；定位与合成场景的 v₂ 独立给定——"
-                     "不一致即模拟\"v₂ 标定错\"的情形")
+                help="岩石-岩石：法向背向区域的波速；压头-岩石：压头波速。默认 = "
+                     "场景真实 v₂（随其联动，手动改过后脱钩）；定位与合成场景"
+                     "的 v₂ 独立给定——不一致即模拟\"v₂ 标定错\"的情形")
             grid_size = st.slider(
                 "初值点个数（grid size）", 1, 64, 4,
                 help="初值网格每条轴的格点【数】，在试样盒内等分取点且含"
@@ -550,7 +551,7 @@ if __name__ == "__main__":
                     (head_len_in if is_comp and geom_comp == "压头-岩石"
                      else None))
     if is_rp:
-        PARAMS = dict(velocity=v_used, velocity2=v2_used,
+        PARAMS = dict(v1=v_used, v2=v2_used,
                       grid_size=int(grid_size), margin=margin,
                       max_iter=int(max_iter), tol=tol)
     else:
@@ -570,7 +571,7 @@ if __name__ == "__main__":
         if exclude:
             kw.pop(exclude, None)            # a swept param must not repeat
         if refr:
-            kw.update(box=box3)              # 介质 1 边界 = 搜索域（米）
+            kw.update(bounds=box3)              # 介质 1 边界 = 搜索域（米）
             if is_comp and geom_comp == "岩石-岩石":
                 kw.update(interface=iface)   # 单一平面分界（任意取向）
             # 压头-岩石：不传 interface -> aelib 盒面模式（6 面折射）
@@ -697,10 +698,11 @@ if __name__ == "__main__":
                               format_func=METRIC_LABELS.get)
         if target.startswith("定位器"):
             if is_rp:
-                param_opts = ["velocity", "velocity2", "grid_size",
+                param_opts = ["v1", "v2", "grid_size",
                               "margin", "max_iter", "tol"]
-                raw_defaults = {"velocity": "3000, 5300, 5605, 7000",
-                                "velocity2": "4000, 4800, 5605, 6500",
+                raw_defaults = {"v1": "3000, 5300, 5605, 7000",
+                                "v2": "4000, 4800, 5605, 6500",
+                                "v1": "3000, 4000, 5605, 7000",
                                 "grid_size": "1, 2, 4, 8, 16",
                                 "margin": "0.0, 0.05, 0.1, 0.2",
                                 "max_iter": "5, 10, 20, 60, 150",

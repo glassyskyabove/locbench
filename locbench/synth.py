@@ -326,8 +326,8 @@ def interface_plane(size, phi_deg: float = 0.0, psi_deg: float = 0.0,
     (+ toward +z; +-90 deg = horizontal interface, normal exactly +-z,
     azimuth irrelevant),
     ``offset`` = the plane's signed DISTANCE (m) from the specimen centre
-    along the normal (positive = toward medium 2).  Normal points into
-    medium 2."""
+    along the normal (positive = toward the v1 side).  Normal points
+    into medium 1 (the v1 side)."""
     size = np.asarray(size, dtype=float)
     if abs(abs(psi_deg) - 90.0) < 1e-9:      # 水平界面：法向精确 ±z
         n = np.array([0.0, 0.0, 1.0 if psi_deg > 0 else -1.0])
@@ -411,7 +411,7 @@ def make_arrivals(sensors: dict, source, velocity: float, t0: float = 0.0,
       RefractionLocator forward model, SI).  Either box-faces geometry
       (sensors must sit on heads outside ``box`` = ``((x0,y0,z0),
       (x1,y1,z1))``, required) or, when ``interface = (point, normal)``
-      is given (normal into medium 2), a SINGLE arbitrarily-oriented
+      is given (normal into the v1 side), a SINGLE arbitrarily-oriented
       plane splits the media and ``box`` is only a fallback.  In both
       cases ``velocity`` is the medium-1 velocity v1 and
       ``v2`` the known medium-2 velocity;  ``v1 == v2``

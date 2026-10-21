@@ -67,7 +67,8 @@ PARAM_LABELS = {
     "grid_size": "初值点个数（grid size）",
     "margin": "外延比例（margin）",
     "velocity": "波速 (m/s)",           # Geiger: 采用波速；折射: v₁ 初值
-    "velocity2": "第二介质波速 v₂ (m/s)",
+    "v2": "波速 v2 (m/s)",
+    "v1": "波速 v1 (m/s)",
     "max_iter": "迭代上限（max_iter）",
     "tol": "收敛判据 (tol)",             # Geiger 单位 s（RMS 改善）；折射单位 m（位置步长）
     "sigma": "到时误差 σ (s)",

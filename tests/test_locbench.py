@@ -462,8 +462,8 @@ def test_refraction_scenario_round_trip():
     sc = Scenario(sensors=sensors, sources=sources, velocity=5300.0,
                   model="refraction", v2=5605.0,
                   box=((0.0, 0.0, 0.0), (0.1, 0.1, 0.1)), seed=1)
-    loc = RefractionLocator(sensors, box=((0, 0, 0), (0.1, 0.1, 0.1)),
-                            velocity=5605.0, velocity2=5605.0)
+    loc = RefractionLocator(sensors, bounds=((0, 0, 0), (0.1, 0.1, 0.1)),
+                            v1=5605.0, v2=5605.0)
     df = run_trials(loc, sc)
     assert len(df) == 3
     assert df["err"].notna().all()
@@ -486,9 +486,9 @@ def test_refraction_method_beats_geiger_on_refraction_data():
     sc = Scenario(sensors=sensors, sources=sources, velocity=v1, sigma=0.2e-6,
                   model="refraction", v2=v2,
                   box=((0.0, 0.0, 0.0), (0.1, 0.1, 0.1)), seed=2, repeats=2)
-    box_kw = dict(box=((0, 0, 0), (0.1, 0.1, 0.1)))
-    df_r = run_trials(RefractionLocator(sensors, velocity=v2,
-                                        velocity2=v2, **box_kw), sc)
+    box_kw = dict(bounds=((0, 0, 0), (0.1, 0.1, 0.1)))
+    df_r = run_trials(RefractionLocator(sensors, v1=v2,
+                                        v2=v2, **box_kw), sc)
     df_g = run_trials(GeigerLocator(sensors, velocity=v2), sc)
     assert df_r["err"].notna().all()
     med_r, med_g = df_r["err"].median(), df_g["err"].median()
@@ -506,11 +506,11 @@ def test_refraction_sweep_over_v1_init(tmp_path):
     sc = Scenario(sensors=sensors, sources=np.array([[0.05, 0.05, 0.05]]),
                   velocity=5300.0, model="refraction", v2=5605.0,
                   box=((0.0, 0.0, 0.0), (0.1, 0.1, 0.1)), seed=1)
-    df = sweep(RefractionLocator, {"velocity": [4500.0, 5605.0]}, sc,
+    df = sweep(RefractionLocator, {"v1": [4500.0, 5605.0]}, sc,
                cache_dir=str(tmp_path),
-               locator_kwargs=dict(velocity2=5605.0,
-                                   box=((0, 0, 0), (0.1, 0.1, 0.1))))
-    assert set(df["velocity"]) == {4500.0, 5605.0} and len(df) == 2
+               locator_kwargs=dict(v2=5605.0,
+                                   bounds=((0, 0, 0), (0.1, 0.1, 0.1))))
+    assert set(df["v1"]) == {4500.0, 5605.0} and len(df) == 2
     assert (df["err"] < 1e-4).all()          # both starts reach the solution
 
 
@@ -641,19 +641,20 @@ def test_composite_scenario_round_trip_both_blocks():
     sc = Scenario(sensors=sensors, sources=np.stack([src_a, src_b]),
                   velocity=v1, model="refraction", v2=v2,
                   box=box, interface=iface, seed=1)
-    loc = RefractionLocator(sensors, box=box, velocity=v1, velocity2=v2,
+    loc = RefractionLocator(sensors, bounds=box, v1=v1, v2=v2,
                             interface=iface)
     df = run_trials(loc, sc)
     assert len(df) == 2 and df["err"].notna().all()
     assert df["converged"].all()
     assert (df["velocity"] == v1).all()        # 平面模式：v1 固定不反演
     assert (df["err"] < 1e-4).all()            # 0 误差 -> 精确
-    for src, side in ((src_a, 1), (src_b, 2)):
+    # 法向 +x 指向 x>50mm 一侧 = 介质 1（v1）；双解下 0 误差 -> 精确
+    for src, side in ((src_a, 2), (src_b, 1)):
         arr, _ = make_arrivals(sensors, src, velocity=v1, model="refraction",
                                v2=v2, box=box, interface=iface, seed=5)
         res = loc.locate(arr, true_coords=src)
-        if res.extra["true_error"] < 1e-3:     # 正确侧时介质正确
-            assert res.extra["source_medium"] == side
+        assert res.extra["source_medium"] == side
+        assert res.extra["true_error"] < 1e-4
 
 
 def test_tilted_interface_scenario_round_trip():
@@ -680,13 +681,14 @@ def test_tilted_interface_scenario_round_trip():
         sc = Scenario(sensors=sensors, sources=np.stack([src_a, src_b]),
                       velocity=v1, model="refraction", v2=v2,
                       box=box, interface=(pt, n), seed=1)
-        loc = RefractionLocator(sensors, box=box, velocity=v1,
-                                velocity2=v2, interface=(pt, n))
+        loc = RefractionLocator(sensors, bounds=box, v1=v1,
+                                v2=v2, interface=(pt, n))
         df = run_trials(loc, sc)
         # 双侧各解一次按失配择优：0 误差 -> 精确定位、介质正确
         assert len(df) == 2 and (df["err"] < 1e-4).all()
         assert df["converged"].all()
-        for src, side in ((src_a, 1), (src_b, 2)):
+        # 约定：法向所指一侧 = 介质 1（v1）——期望侧随之
+        for src, side in ((src_a, 2), (src_b, 1)):
             arr, _ = make_arrivals(sensors, src, velocity=v1,
                                    model="refraction", v2=v2,
                                    box=box, interface=(pt, n), seed=5)
