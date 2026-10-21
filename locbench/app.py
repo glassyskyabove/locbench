@@ -465,13 +465,19 @@ if __name__ == "__main__":
                 "收敛判据 tol (m)", 0.0, 1e-3, 1e-5, step=1e-7,
                 format="%.1e",
                 help="Σ|Δx|+|Δy|+|Δz| < tol 即收敛")
+            inv_c1, inv_c2 = st.columns(2)
             if is_comp and geom_comp == "岩石-岩石":
-                inv_c1, inv_c2 = st.columns(2)
-                inv1 = inv_c1.checkbox("反演波速 v1", False)
-                inv2 = inv_c2.checkbox("反演波速 v2", False)
+                # 平面模式：两个波速都可反演（二元列表）
+                inv1 = inv_c1.checkbox("反演波速 v1", False, key="est_v1")
+                inv2 = inv_c2.checkbox("反演波速 v2", False, key="est_v2")
                 estimate_velocity = [inv1, inv2]
             else:
-                estimate_velocity = st.checkbox("反演波速 v1", True)
+                # 盒面模式：v2 恒为已知（禁用其复选框，保持控件结构不变，
+                # 避免前端在布局切换时留下僵尸元素）
+                inv1 = inv_c1.checkbox("反演波速 v1", True, key="est_v1")
+                inv2 = inv_c2.checkbox("反演波速 v2", False, key="est_v2",
+                                       disabled=True)
+                estimate_velocity = inv1
         else:
             _auto_default("g_v", v_true)               # 采用波速默认 = 真值
             v_used = st.number_input("采用波速 (m/s)", 100.0, 10000.0,
