@@ -431,24 +431,14 @@ if __name__ == "__main__":
                            help="每个事件对每个通道独立抽一个 [0,1) 均匀随机数，"
                                 "小于该值则此通道在此事件中被丢弃")
         v_true = st.number_input(
-"真实波速 (m/s)", 100.0, 10000.0, 5300.0, 100.0,
-            help="v1 的约定：岩石-岩石 = 界面法向所指一侧；压头-岩石 = 岩石试样")
+"真实波速 (m/s)", 100.0, 10000.0, 5300.0, 100.0)
         if is_refr:
             v2_true = st.number_input(
-                "波速 v2 (m/s)", 100.0, 10000.0, 5605.0, 100.0,
-                help="v2 的约定：组合体界面的另一侧（法向背向一侧）")
+                "波速 v2 (m/s)", 100.0, 10000.0, 5605.0, 100.0)
 
         st.header("定位器")
         method_label = st.radio(
-            "定位算法", ["Geiger", "折射路径 (locRP)"], key="loc_method",
-            help="Geiger = 均质直线模型线性化加权最小二乘（grid 初值 + LM）；"
-                 "折射路径 = aelib RefractionLocator（Rui et al. 2024, IJMST "
-                 "34:521-530 的两介质推广）：按 (源, 传感器) 所在介质分派"
-                 "直线/折射射线，联合反演震源、介质 1 波速 v₁ 与震源所在"
-                 "介质（第二介质波速 v₂ 已知），LM + 迭代鲁棒加权——对粗差"
-                 "几乎免疫。任意布置均可（介质按位置归属）；波速模型选"
-                 "\"组合体\"即两介质完整场景，保持\"均质\"则相当于给折射法"
-                 "喂错模型的数据")
+            "定位算法", ["Geiger", "折射路径 (locRP)"], key="loc_method")
         is_rp = method_label.startswith("折射")
         if is_rp:
             # 定位器波速默认 = 真值（v₁ 初值跟真实波速、v₂ 跟场景 v₂），
@@ -461,26 +451,6 @@ if __name__ == "__main__":
             v2_used = st.number_input(
                 "波速 v2 (m/s)", 100.0, 10000.0, key="rp_v2",
                 step=100.0, on_change=lambda: _unset_auto("rp_v2"))
-            if is_comp and geom_comp == "岩石-岩石":
-                # 平面模式：v1/v2 都是给定值，各自决定是否反演（二元列表）
-                inv_c1, inv_c2 = st.columns(2)
-                inv1 = inv_c1.checkbox(
-                    "反演波速 v1", False,
-                    help="勾选后 v1 作为未知数与震源位置联合反演（初值 = "
-                         "上方波速 v1）；不勾则固定为该值。岩石-岩石默认"
-                         "不反演")
-                inv2 = inv_c2.checkbox(
-                    "反演波速 v2", False,
-                    help="勾选后 v2 作为未知数与震源位置联合反演（初值 = "
-                         "上方波速 v2）；不勾则固定为该值")
-                estimate_velocity = [inv1, inv2]
-            else:
-                # 盒面模式（压头-岩石 / 均质正演实验）：v2 恒为已知，
-                # bool 控制岩石 v1 是否反演（默认反演）
-                estimate_velocity = st.checkbox(
-                    "反演波速 v1", True,
-                    help="盒面折射：v1（岩石波速）是否作为未知数与震源位置"
-                         "联合反演；v2 恒为已知")
             grid_size = st.slider(
                 "初值点个数（grid size）", 1, 64, 4,
                 help="初值网格每条轴的格点【数】，在试样盒内等分取点且含"
@@ -490,57 +460,43 @@ if __name__ == "__main__":
             margin = st.slider(
                 "外延比例（margin）", 0.0, 0.5, 0.0, 0.01,
                 help="扩大初值搜索区域，外延尺寸=外延比例*试样尺寸")
-            max_iter = st.number_input("迭代上限（max_iter）", 5, 500, 60, 5,
-                                       help="LM 迭代次数上限（论文为 20；"
-                                            "默认 60 让鲁棒权重的重估充分"
-                                            "收敛）")
+            max_iter = st.number_input("迭代上限（max_iter）", 5, 500, 60, 5)
             tol = st.number_input(
                 "收敛判据 tol (m)", 0.0, 1e-3, 1e-5, step=1e-7,
                 format="%.1e",
-                help="【位置步长】判据（与 Geiger 的时间 RMS 判据不同）："
-                     "一次被接受的迭代把震源移动 Σ|Δx|+|Δy|+|Δz| < tol "
-                     "即收敛。默认 1e-5 m = 0.01 mm——刻意偏松：鲁棒权重"
-                     "逐次重估时追噪声级以下的改进会让迭代沿位置-速度弱"
-                     "约束方向漂移；0 = 关闭该判据")
+                help="Σ|Δx|+|Δy|+|Δz| < tol 即收敛")
+            if is_comp and geom_comp == "岩石-岩石":
+                inv_c1, inv_c2 = st.columns(2)
+                inv1 = inv_c1.checkbox("反演波速 v1", False)
+                inv2 = inv_c2.checkbox("反演波速 v2", False)
+                estimate_velocity = [inv1, inv2]
+            else:
+                estimate_velocity = st.checkbox("反演波速 v1", True)
         else:
             _auto_default("g_v", v_true)               # 采用波速默认 = 真值
             v_used = st.number_input("采用波速 (m/s)", 100.0, 10000.0,
                                      key="g_v", step=100.0,
                                      on_change=lambda: _unset_auto("g_v"))
-            est_v = st.checkbox(
-                "联合反演速度", False,
-                help="勾选后波速 v 也作为未知数与震源位置联合反演"
-                     "（aelib estimate_velocity）")
-            estimate_velocity = est_v
             grid_size = st.slider("初值点个数（grid size）", 4, 64, 4,
-                                  help="初值网格每条轴的格点【数】，不是间距：在搜"
-                                       "索盒内等分取点且含边界，实际间距 = 跨度/"
-                                       "(个数−1)，候选点总数 = 个数^维度（见下方注"
-                                       "释）。定位迭代前对每个候选点算加权残差代"
-                                       "价，取最优者作起点。个数越多初值越稳但初"
-                                       "值阶段越慢")
+                                  help="初值网格每条轴的格点【数】，等分取点且含"
+                                       "边界")
             st.caption(f"初值点 = {'×'.join([str(grid_size)] * (3 if is_3d else 2))}"
                        f" = {grid_size ** (3 if is_3d else 2)} 个候选点"
                        f"（{'三维' if is_3d else '二维'}网格搜索）")
             margin = st.slider("外延比例（margin）", 0.0, 0.5, 0.0, 0.01,
                                help="扩大初值搜索区域，外延尺寸=外延比例*试样尺寸")
-            max_iter = st.number_input("迭代上限（max_iter）", 5, 500, 60, 5,
-                                       help="外层迭代次数上限，两种模式共用；"
-                                            "跑满且末步 RMS 改善仍大于 tol 则标记"
-                                            "未收敛")
+            max_iter = st.number_input("迭代上限（max_iter）", 5, 500, 60, 5)
             # 默认 = 1/fs（一个采样周期，与 aelib v0.9.39 的默认语义一致）；
             # 未手动改过 tol 时随采样率联动，改过即脱钩；fs=0 回退 1e-6
             _auto_default("tol_in", 1.0 / fs_hz if fs_hz > 0 else 1e-6)
             tol = st.number_input("收敛判据 tol (s)", 0.0, 1e-3, key="tol_in",
                                   step=1e-7, format="%.1e",
                                   on_change=lambda: _unset_auto("tol_in"),
-                                  help="相邻两次迭代加权残差 RMS 的改善量小于 tol "
-                                       "即判定收敛。默认 1/fs = 一个采样周期"
-                                       "（如 10 MHz → 1e-7 s，采样分辨率以下的"
-                                       "改善是噪声）；改采样率会联动此默认，手动"
-                                       "改过 tol 后不再联动；0 = 关闭该判据，"
-                                       "仅靠停滞判据或 max_iter 终止")
+                                  help="加权残差 RMS 改善量 < tol 即收敛")
         damping = st.checkbox("LM 阻尼", True) if not is_rp else True
+        if not is_rp:
+            est_v = st.checkbox("联合反演速度", False)
+            estimate_velocity = est_v
 
     box3 = refr_box          # 介质 1 边界（米）：折射界面/折射初值域
     SCENARIO_KEY = ("scenario", kind, n_sensors, lx, ly, lz, custom_key,
