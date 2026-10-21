@@ -214,14 +214,7 @@ if __name__ == "__main__":
         place_opts = ["几何特征", "随机", "自定义"]
         if is_3d and (is_refr or is_rp_now) and not is_cyl:
             place_opts.append("压头")
-        place_label = st.radio("传感器布置", place_opts, key="place_kind",
-                               help=("几何特征＝试样几何特征点布传感器（长方体"
-                                     "为边/面/顶点组合，圆柱为侧面象限点）；"
-                                     "压头＝试样盒六个面外各布若干"
-                                     "传感器（组合体场景的盒外布置，如加载"
-                                     "压头上的传感器）；其余布置与组合体模型"
-                                     "自由组合——介质按传感器位置自动归属"
-                                     if (is_refr or is_rp_now) else None))
+        place_label = st.radio("传感器布置", place_opts, key="place_kind")
         kind = f"{'3d' if is_3d else '2d'}-" + {"几何特征": "feature",
                                                 "随机": "random",
                                                 "自定义": "custom",
@@ -463,15 +456,11 @@ if __name__ == "__main__":
             _auto_default("rp_v1", v_true)
             v_used = st.number_input(
                 "波速 v1 (m/s)", 100.0, 10000.0, key="rp_v1",
-                step=100.0, on_change=lambda: _unset_auto("rp_v1"),
-                help="v1 的约定：岩石-岩石 = 界面法向所指一侧；压头-岩石 = "
-                     "岩石试样")
+                step=100.0, on_change=lambda: _unset_auto("rp_v1"))
             _auto_default("rp_v2", v2_true if is_refr else v_true)
             v2_used = st.number_input(
                 "波速 v2 (m/s)", 100.0, 10000.0, key="rp_v2",
-                step=100.0, on_change=lambda: _unset_auto("rp_v2"),
-                help="v2 的约定：岩石-岩石 = 界面法向背向一侧；压头-岩石 = "
-                     "压头")
+                step=100.0, on_change=lambda: _unset_auto("rp_v2"))
             if is_comp and geom_comp == "岩石-岩石":
                 # 平面模式：v1/v2 都是给定值，各自决定是否反演（二元列表）
                 inv_c1, inv_c2 = st.columns(2)
@@ -495,14 +484,12 @@ if __name__ == "__main__":
             grid_size = st.slider(
                 "初值点个数（grid size）", 1, 64, 4,
                 help="初值网格每条轴的格点【数】，在试样盒内等分取点且含"
-                     "边界；1 = 只用试样中心（论文的单一初值）。折射法"
-                     "的初值网格覆盖试样盒而非传感器包围盒（传感器全在盒外）")
+                     "边界；1 = 只用试样中心")
             st.caption(f"初值点 = {'×'.join([str(grid_size)] * 3)}"
                        f" = {grid_size ** 3} 个候选点（试样盒内三维网格搜索）")
             margin = st.slider(
                 "外延比例（margin）", 0.0, 0.5, 0.0, 0.01,
-                help="初值搜索盒 = 试样盒各方向向外扩大的比例；预判震源在"
-                     "试样面与压头内面之间时才需加大")
+                help="扩大初值搜索区域，外延尺寸=外延比例*试样尺寸")
             max_iter = st.number_input("迭代上限（max_iter）", 5, 500, 60, 5,
                                        help="LM 迭代次数上限（论文为 20；"
                                             "默认 60 让鲁棒权重的重估充分"
@@ -536,11 +523,7 @@ if __name__ == "__main__":
                        f" = {grid_size ** (3 if is_3d else 2)} 个候选点"
                        f"（{'三维' if is_3d else '二维'}网格搜索）")
             margin = st.slider("外延比例（margin）", 0.0, 0.5, 0.0, 0.01,
-                               help="初值搜索盒 = 传感器包围盒各方向向外扩大的"
-                                    "比例（0.05 = 每边外扩 5% 跨度），默认 0 即"
-                                    "只在包围盒内搜索。震源通常在传感器阵列包围盒内；"
-                                    "预判震源会越出传感器阵列时才需加大。只影响初值搜"
-                                    "索范围，不限制最终解的位置")
+                               help="扩大初值搜索区域，外延尺寸=外延比例*试样尺寸")
             max_iter = st.number_input("迭代上限（max_iter）", 5, 500, 60, 5,
                                        help="外层迭代次数上限，两种模式共用；"
                                             "跑满且末步 RMS 改善仍大于 tol 则标记"
