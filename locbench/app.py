@@ -476,6 +476,26 @@ if __name__ == "__main__":
                 help="岩石-岩石：法向背向区域的波速；压头-岩石：压头波速。默认 = "
                      "场景真实 v₂（随其联动，手动改过后脱钩）；定位与合成场景"
                      "的 v₂ 独立给定——不一致即模拟\"v₂ 标定错\"的情形")
+            if is_comp and geom_comp == "岩石-岩石":
+                # 平面模式：v1/v2 都是给定值，各自决定是否反演（二元列表）
+                inv_c1, inv_c2 = st.columns(2)
+                inv1 = inv_c1.checkbox(
+                    "反演波速 v1", False,
+                    help="勾选后 v1 作为未知数与震源位置联合反演（初值 = "
+                         "上方波速 v1）；不勾则固定为该值。岩石-岩石默认"
+                         "不反演")
+                inv2 = inv_c2.checkbox(
+                    "反演波速 v2", False,
+                    help="勾选后 v2 作为未知数与震源位置联合反演（初值 = "
+                         "上方波速 v2）；不勾则固定为该值")
+                estimate_velocity = [inv1, inv2]
+            else:
+                # 盒面模式（压头-岩石 / 均质正演实验）：v2 恒为已知，
+                # bool 控制岩石 v1 是否反演（默认反演）
+                estimate_velocity = st.checkbox(
+                    "反演波速 v1", True,
+                    help="盒面折射：v1（岩石波速）是否作为未知数与震源位置"
+                         "联合反演；v2 恒为已知")
             grid_size = st.slider(
                 "初值点个数（grid size）", 1, 64, 4,
                 help="初值网格每条轴的格点【数】，在试样盒内等分取点且含"
@@ -504,6 +524,11 @@ if __name__ == "__main__":
             v_used = st.number_input("采用波速 (m/s)", 100.0, 10000.0,
                                      key="g_v", step=100.0,
                                      on_change=lambda: _unset_auto("g_v"))
+            est_v = st.checkbox(
+                "联合反演速度", False,
+                help="勾选后波速 v 也作为未知数与震源位置联合反演"
+                     "（aelib estimate_velocity）")
+            estimate_velocity = est_v
             grid_size = st.slider("初值点个数（grid size）", 4, 64, 4,
                                   help="初值网格每条轴的格点【数】，不是间距：在搜"
                                        "索盒内等分取点且含边界，实际间距 = 跨度/"
@@ -537,7 +562,6 @@ if __name__ == "__main__":
                                        "改过 tol 后不再联动；0 = 关闭该判据，"
                                        "仅靠停滞判据或 max_iter 终止")
         damping = st.checkbox("LM 阻尼", True) if not is_rp else True
-        est_v = st.checkbox("联合反演速度", False) if not is_rp else False
 
     box3 = refr_box          # 介质 1 边界（米）：折射界面/折射初值域
     SCENARIO_KEY = ("scenario", kind, n_sensors, lx, ly, lz, custom_key,
@@ -552,6 +576,7 @@ if __name__ == "__main__":
                      else None))
     if is_rp:
         PARAMS = dict(v1=v_used, v2=v2_used,
+                      estimate_velocity=estimate_velocity,
                       grid_size=int(grid_size), margin=margin,
                       max_iter=int(max_iter), tol=tol)
     else:
