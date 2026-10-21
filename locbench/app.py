@@ -117,6 +117,16 @@ if __name__ == "__main__":
         else:
             geom_comp = None
             is_cyl = False
+        # 进入组合体时，定位算法自动切到"折射路径"；进入压头-岩石时，
+        # 传感器布置自动切到"压头"（均只在切换瞬间强制一次，之后用户仍
+        # 可自由修改）
+        if is_comp and st.session_state.get("model_prev") != "组合体":
+            st.session_state["loc_method"] = "折射路径 (locRP)"
+        if (is_comp and geom_comp == "压头-岩石"
+                and st.session_state.get("geom_prev") != "压头-岩石"):
+            st.session_state["place_kind"] = "压头"
+        st.session_state["model_prev"] = "组合体" if is_comp else "均质"
+        st.session_state["geom_prev"] = (geom_comp if is_comp else "均质")
         sz_unit = st.selectbox("尺寸单位", ["mm", "m"])          # 尺寸与间距共用
         u_sz = 1e-3 if sz_unit == "mm" else 1.0
 
@@ -203,7 +213,7 @@ if __name__ == "__main__":
         place_opts = ["几何特征", "随机", "自定义"]
         if is_3d and (is_refr or is_rp_now) and not is_cyl:
             place_opts.append("压头")
-        place_label = st.radio("传感器布置", place_opts,
+        place_label = st.radio("传感器布置", place_opts, key="place_kind",
                                help=("几何特征＝试样几何特征点布传感器（长方体"
                                      "为边/面/顶点组合，圆柱为侧面象限点）；"
                                      "压头＝试样盒六个面外各布若干"
@@ -450,15 +460,21 @@ if __name__ == "__main__":
                  "喂错模型的数据")
         is_rp = method_label.startswith("折射")
         if is_rp:
+            # 定位器波速默认 = 真值（v₁ 初值跟真实波速、v₂ 跟场景 v₂），
+            # 随真值联动；手动改过后脱钩
+            _auto_default("rp_v1", v_true)
             v_used = st.number_input(
-                "试样波速初值 v₁ (m/s)", 100.0, 10000.0, 5605.0, 100.0,
-                help="v₁ 的迭代初值（论文从压头波速起步，默认同 v₂）；"
-                     "反演结果见逐试验表格的 velocity 列")
+                "试样波速初值 v₁ (m/s)", 100.0, 10000.0, key="rp_v1",
+                step=100.0, on_change=lambda: _unset_auto("rp_v1"),
+                help="v₁ 的迭代初值，默认 = 真实波速（随其联动，手动改过后"
+                     "脱钩）；反演结果见逐试验表格的 velocity 列")
+            _auto_default("rp_v2", v2_true if is_refr else v_true)
             v2_used = st.number_input(
-                "第二介质波速 v₂ (m/s)", 100.0, 10000.0, 5605.0, 100.0,
-                help="已知的第二介质波速（压头 / 组合体第二块，正演模型 "
-                     "v₂）；定位与合成场景的 v₂ 独立给定——不一致即模拟"
-                     "\"v₂ 标定错\"的情形")
+                "第二介质波速 v₂ (m/s)", 100.0, 10000.0, key="rp_v2",
+                step=100.0, on_change=lambda: _unset_auto("rp_v2"),
+                help="已知的第二介质波速，默认 = 场景真实 v₂（随其联动，"
+                     "手动改过后脱钩）；定位与合成场景的 v₂ 独立给定——"
+                     "不一致即模拟\"v₂ 标定错\"的情形")
             grid_size = st.slider(
                 "初值点个数（grid size）", 1, 64, 4,
                 help="初值网格每条轴的格点【数】，在试样盒内等分取点且含"
@@ -483,7 +499,10 @@ if __name__ == "__main__":
                      "逐次重估时追噪声级以下的改进会让迭代沿位置-速度弱"
                      "约束方向漂移；0 = 关闭该判据")
         else:
-            v_used = st.number_input("采用波速 (m/s)", 100.0, 10000.0, 5300.0, 100.0)
+            _auto_default("g_v", v_true)               # 采用波速默认 = 真值
+            v_used = st.number_input("采用波速 (m/s)", 100.0, 10000.0,
+                                     key="g_v", step=100.0,
+                                     on_change=lambda: _unset_auto("g_v"))
             grid_size = st.slider("初值点个数（grid size）", 4, 64, 4,
                                   help="初值网格每条轴的格点【数】，不是间距：在搜"
                                        "索盒内等分取点且含边界，实际间距 = 跨度/"

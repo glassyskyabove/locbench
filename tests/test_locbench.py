@@ -726,8 +726,13 @@ def test_dashboard_composite_flow():
     place = next(r for r in at.sidebar.radio if "传感器布置" in r.label)
     assert "组合体（两介质）" not in place.options      # 无专属布置
     assert place.value == "几何特征"                    # 默认顶点布置直接可用
-    # 界面偏移 = 长度（mm）：离开中心 10 mm
+    # 进入组合体：定位算法自动切到折射路径
+    assert next(r for r in at.sidebar.radio
+                if "定位算法" in r.label).value == "折射路径 (locRP)"
+    # 界面偏移 = 长度（mm）：离开中心 10 mm；σ=0 消除噪声脆弱性
+    #（σ=1us 下个别弱约束源可能不收敛，断言 100% 会抖动）
     next(s for s in at.sidebar.slider if "界面偏移" in s.label).set_value(10.0)
+    next(s for s in at.sidebar.slider if "到时误差" in s.label).set_value(0.0)
     at.run()
     next(r for r in at.sidebar.radio
          if "定位算法" in r.label).set_value("折射路径 (locRP)")
@@ -930,6 +935,12 @@ def test_dashboard_head_rock_geometry_flow():
     next(r for r in at.sidebar.radio
          if "几何模型" in r.label).set_value("压头-岩石")
     at.run()
+    # 进入压头-岩石：传感器布置自动切到压头（定位器已在进入组合体时
+    # 自动切为折射路径）
+    assert next(r for r in at.sidebar.radio
+                if "传感器布置" in r.label).value == "压头"
+    assert next(r for r in at.sidebar.radio
+                if "定位算法" in r.label).value == "折射路径 (locRP)"
     # 压头长度输入出现；界面滑条隐藏
     assert any("压头长度" in n.label for n in at.sidebar.number_input)
     assert not any("界面法向方位角" in s.label for s in at.sidebar.slider)
