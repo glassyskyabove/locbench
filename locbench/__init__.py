@@ -9,7 +9,7 @@ from .synth import (composite_layout, corners_layout, coplanar_layout,
                     parse_layout, quadrant_layout, random_int_layout,
                     random_layout, random_sources)
 
-__version__ = "0.2.31"
+__version__ = "0.3.0"
 
 __all__ = [
     "Scenario", "run_trials", "summarize", "sweep",
