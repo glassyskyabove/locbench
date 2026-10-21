@@ -64,67 +64,25 @@ if __name__ == "__main__":
 
     # 滚轮穿透：悬停数字输入框时滚轮强制滚动所在容器，而不是被输入框吞掉
     # （或误改数值）。经同源 iframe 注入到父页面，失败则静默跳过。
-    # 同时经父页面注入"侧栏原子交接"脚本。背景：重跑开始时 Streamlit 把旧
-    # 元素标记 data-stale="true"，但直到运行结束才真正移除——长计算运行
-    # 期间新旧两棵树并排可见（如两行"反演波速"）。脚本监视侧栏：同一标签
-    # 的新鲜替身一挂载，旧元素立即隐藏（原子交接，无闪烁、无重叠）；0.8s
-    # 内没有替身的（真正被移除的控件，如界面滑条）平滑淡出。仅作用于侧
-    # 栏；主区保持原生行为（重跑期间旧结果仍可见）。脚本节点常驻父页面，
-    # 不随本 iframe 重建而失效。
+    # 同时注入一条 CSS：data-stale="true" 的元素（重跑开始时被标记、要等
+    # 本次运行结束才移除的旧元素）在 0.25s 延迟后 0.25s 内溶解并收起——
+    # 延迟留给新元素挂载（快速重跑全程无感），溶解避免长计算运行期间
+    # 新旧两棵树并排可见（如两行"反演波速"）或瞬间空白闪烁。
     st.iframe("""
     <script>
     try {
       const doc = window.parent.document;
-      if (!doc.getElementById("lb-stale-sweep")) {
-        const sc = doc.createElement("script");
-        sc.id = "lb-stale-sweep";
-        sc.textContent = "(" + function () {
-          const sty = document.createElement("style");
-          sty.textContent = `
-            .lb-fade-out { animation: lb-fade .25s ease forwards !important;
-                           pointer-events: none !important; }
-            @keyframes lb-fade { to { opacity: 0; visibility: hidden;
-                                      display: none; } }`;
-          document.head.appendChild(sty);
-          const marks = new WeakMap();
-          const sweep = () => {
-            const root = document.querySelector('[data-testid="stSidebar"]');
-            if (!root) return;
-            const staleEls = Array.from(root.querySelectorAll('[data-stale="true"]'));
-            if (!staleEls.length) return;
-            const fresh = new Set();
-            root.querySelectorAll('[data-stale="false"] label').forEach(l => {
-              const t = (l.textContent || "").trim();
-              if (t) fresh.add(t);
-            });
-            const now = Date.now();
-            for (const c of staleEls) {
-              if (!marks.has(c)) marks.set(c, now);
-              const lab = c.querySelector("label");
-              const t = lab ? (lab.textContent || "").trim() : "";
-              if (t && fresh.has(t)) {
-                c.style.display = "none";        // 替身已挂载：立即让位
-              } else if (now - marks.get(c) > 800) {
-                c.classList.add("lb-fade-out");  // 无替身：真正移除，淡出
-              }
-            }
-          };
-          new MutationObserver(muts => {
-            for (const m of muts) {
-              if (m.attributeName === "data-stale"
-                  && m.target.getAttribute("data-stale") !== "true") {
-                m.target.style.display = "";      // 元素复活：撤销隐藏
-                m.target.classList.remove("lb-fade-out");
-              }
-            }
-            requestAnimationFrame(sweep);
-          }).observe(document.body, { subtree: true, childList: true,
-                                      attributes: true,
-                                      attributeFilter: ["data-stale"] });
-          setInterval(sweep, 150);
-        } + ")();";
-        doc.head.appendChild(sc);
-      }
+      const sty = doc.createElement("style");
+      sty.textContent = `
+        @keyframes lb-hide-stale {
+          from { opacity: 1; }
+          to { opacity: 0; visibility: hidden; display: none; }
+        }
+        [data-stale="true"] {
+          animation: lb-hide-stale .25s ease .25s forwards;
+          pointer-events: none !important;
+        }`;
+      doc.head.appendChild(sty);
       doc.addEventListener("wheel", (e) => {
         const t = e.target;
         if (t && t.tagName === "INPUT" && t.type === "number") {
