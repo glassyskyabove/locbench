@@ -13,7 +13,8 @@ from typing import Dict, Optional, Tuple
 import numpy as np
 
 __all__ = ["corners_layout", "feature_layout", "head_layout",
-           "composite_layout", "interface_plane", "random_layout",
+           "composite_layout", "interface_plane", "quadrant_layout",
+           "cylinder_sources", "cylinder_grid", "random_layout",
            "random_int_layout", "coplanar_layout", "random_sources",
            "grid_sources", "parse_layout", "make_arrivals"]
 
@@ -261,6 +262,55 @@ def composite_layout(size, per_face: int = 2, seed=None, rng=None) -> Dict[int, 
                 p[ax] = side * size[ax]
                 pts.append(p)
     return {i + 1: tuple(float(v) for v in p) for i, p in enumerate(pts)}
+
+
+def quadrant_layout(diameter: float, height: float, n_layers: int = 2,
+                    seed=None, rng=None) -> Dict[int, tuple]:
+    """Sensors at the four quadrant azimuths (+x, +y, -x, -y) of the
+    cylindrical SIDE surface, at ``n_layers`` interior height levels
+    (``z = (k + 0.5) * height / n_layers``) -> ``4 * n_layers`` sensors,
+    cylinder axis = z through (0, 0), z in ``[0, height]``.  Keys 1..n,
+    layer by layer; deterministic; SI units."""
+    if diameter <= 0 or height <= 0:
+        raise ValueError("圆柱的直径和高必须为正")
+    if n_layers < 1:
+        raise ValueError("象限点层数至少为 1")
+    r = diameter / 2.0
+    pts: list = []
+    for k in range(n_layers):
+        z = (k + 0.5) * height / n_layers
+        for q in range(4):
+            a = np.radians(90.0 * q)
+            pts.append((r * np.cos(a), r * np.sin(a), z))
+    return {i + 1: tuple(float(v) for v in p) for i, p in enumerate(pts)}
+
+
+def cylinder_sources(n: int, diameter: float, height: float,
+                     seed=None, rng=None) -> np.ndarray:
+    """Uniform random sources inside the cylinder (axis = z through
+    (0, 0), z in ``[0, height]``); shape ``(n, 3)``, SI units."""
+    if diameter <= 0 or height <= 0:
+        raise ValueError("圆柱的直径和高必须为正")
+    rng = _rng(rng, seed)
+    r = diameter / 2.0
+    rad = r * np.sqrt(rng.random(n))               # 圆盘内面积均匀
+    ang = 2.0 * np.pi * rng.random(n)
+    z = height * rng.random(n)
+    return np.stack([rad * np.cos(ang), rad * np.sin(ang), z], axis=1)
+
+
+def cylinder_grid(diameter: float, height: float,
+                  spacing=1.0) -> np.ndarray:
+    """Cell-centre grid inside the cylinder (axis = z through (0, 0)):
+    the bounding-box grid ``[-R, R]^2 x [0, height]`` (same rules as
+    :func:`grid_sources`: round(span/spacing) cells, cell centres, no
+    boundary points) filtered to points strictly inside the disc
+    (``x^2 + y^2 < R^2``).  ``spacing`` one value or per-axis sequence;
+    SI units."""
+    r = diameter / 2.0
+    g = grid_sources(spacing=spacing, box=((-r, -r, 0.0), (r, r, height)))
+    keep = g[:, 0] ** 2 + g[:, 1] ** 2 < r * r
+    return g[keep]
 
 
 def interface_plane(size, phi_deg: float = 0.0, psi_deg: float = 0.0,

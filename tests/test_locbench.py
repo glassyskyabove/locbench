@@ -7,10 +7,11 @@ from aelib import GeigerLocator, RefractionLocator
 from locbench.evaluate import Scenario, run_trials, summarize
 from locbench.sweep import sweep
 from locbench.synth import (composite_layout, corners_layout,
-                            coplanar_layout, feature_layout, grid_sources,
-                            head_layout, interface_plane, make_arrivals,
-                            parse_layout, random_int_layout, random_layout,
-                            random_sources)
+                            coplanar_layout, cylinder_grid, cylinder_sources,
+                            feature_layout, grid_sources, head_layout,
+                            interface_plane, make_arrivals, parse_layout,
+                            quadrant_layout, random_int_layout,
+                            random_layout, random_sources)
 
 
 def test_random_int_layout_mm_grid():
@@ -801,3 +802,99 @@ def test_dashboard_interface_offset_sticks():
     at.run()
     assert next(s for s in at.sidebar.slider
                 if "界面偏移" in s.label).value == 10.0   # 再次重跑仍保持
+
+
+def test_quadrant_layout_and_cylinder_sources():
+    """quadrant_layout: 4 quadrant azimuths (+x/+y/-x/-y) on the cylindrical
+    surface per layer, interior height levels, deterministic, rejects bad
+    args.  cylinder_sources: uniform inside the disc, |r| < R, z in
+    [0, H].  cylinder_grid: cell-centre box grid filtered strictly inside
+    the disc."""
+    lay = quadrant_layout(0.05, 0.1, n_layers=2)
+    assert len(lay) == 8
+    for k in range(2):
+        z_expect = (k + 0.5) * 0.1 / 2
+        for q, (dx, dy) in enumerate(((1, 0), (0, 1), (-1, 0), (0, -1))):
+            p = np.asarray(lay[4 * k + q + 1])
+            assert np.allclose(p, (0.025 * dx, 0.025 * dy, z_expect))
+    assert quadrant_layout(0.05, 0.1, 2) == lay            # deterministic
+    for kwargs in ({"diameter": 0.0}, {"height": -1}, {"n_layers": 0}):
+        base = {"diameter": 0.05, "height": 0.1, "n_layers": 1}
+        try:
+            quadrant_layout(**{**base, **kwargs})
+            raise AssertionError("must reject bad args")
+        except ValueError:
+            pass
+    rs = cylinder_sources(500, 0.05, 0.1, seed=1)
+    assert rs.shape == (500, 3)
+    r2 = rs[:, 0] ** 2 + rs[:, 1] ** 2
+    assert (r2 < 0.025 ** 2).all() and (rs[:, 2] >= 0).all() \
+        and (rs[:, 2] <= 0.1).all()
+    g = cylinder_grid(0.05, 0.1, spacing=0.01)
+    assert g.ndim == 2 and g.shape[1] == 3 and len(g) > 10
+    assert (g[:, 0] ** 2 + g[:, 1] ** 2 < 0.025 ** 2).all()
+    assert (g[:, 2] > 0).all() and (g[:, 2] < 0.1).all()   # 格心不含边界
+    box_g = grid_sources(spacing=0.01,
+                         box=((-0.025, -0.025, 0), (0.025, 0.025, 0.1)))
+    assert len(g) < len(box_g)                              # 圆盘过滤生效
+
+
+def test_cylinder_scenario_end_to_end():
+    """Cylinder specimen end to end (homogeneous model): quadrant sensors
+    + sources inside the cylinder -> Geiger locates to ~mm at 0.1 us pick
+    noise; the bench's straight-ray forward model is geometry-free, so
+    cylinder vs box only changes placement/source domains."""
+    sensors = quadrant_layout(0.05, 0.1, n_layers=2)
+    sources = cylinder_sources(6, 0.05, 0.1, seed=3)
+    sc = Scenario(sensors=sensors, sources=sources, velocity=5300.0,
+                  sigma=1e-7, seed=4)
+    df = run_trials(GeigerLocator(sensors, velocity=5300.0), sc)
+    assert len(df) == 6 and df["err"].notna().all()
+    assert df["err"].median() < 2e-3                        # ~mm at 0.1 us
+    assert df["converged"].all()
+
+
+def test_dashboard_cylinder_geometry_flow():
+    """AppTest：均质下出现\"几何模型\"（长方体/圆柱）；选圆柱后尺寸变为
+    直径/高，几何特征布置只剩\"象限点层数\"（无边/面/顶点复选框），折射
+    定位器可跑；切到组合体后\"几何模型\"隐藏。"""
+    import pytest
+    pytest.importorskip("streamlit")
+    from pathlib import Path
+    from streamlit.testing.v1 import AppTest
+
+    app = Path(__file__).resolve().parents[1] / "locbench" / "app.py"
+    at = AppTest.from_file(str(app), default_timeout=300)
+    at.run()
+    assert not at.exception
+    # 缩小场景
+    next(r for r in at.sidebar.radio if "震源布置" in r.label).set_value("随机震源")
+    at.run()
+    next(s for s in at.sidebar.slider if s.label == "震源数").set_value(3)
+    next(t for t in at.text_input
+         if t.label.startswith("取值")).set_value("5300")
+    geom = next(r for r in at.sidebar.radio if "几何模型" in r.label)
+    assert geom.options == ["长方体", "圆柱"]
+    geom.set_value("圆柱")
+    at.run()
+    # 尺寸 = 直径/高；几何特征布置只剩象限点层数
+    labels = [n.label for n in at.sidebar.number_input]
+    assert "试样直径" in labels and "试样高" in labels
+    assert "试样尺寸 x" not in labels
+    feature_boxes = [c.label for c in at.sidebar.checkbox
+                     if c.label in ("横边", "纵边", "垂边", "侧面", "正面",
+                                    "顶面", "顶点")]
+    assert not feature_boxes, feature_boxes
+    assert any("象限点层数" in n.label for n in at.sidebar.number_input)
+    # 折射定位器可跑
+    next(r for r in at.sidebar.radio
+         if "定位算法" in r.label).set_value("折射路径 (locRP)")
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert not at.error, [e.value for e in at.error]
+    # 组合体下几何模型隐藏
+    next(r for r in at.sidebar.radio
+         if "波速模型" in r.label).set_value("组合体（两介质）")
+    at.run()
+    assert not any("几何模型" in r.label for r in at.sidebar.radio)
+    assert not at.exception and not at.error

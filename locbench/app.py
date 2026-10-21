@@ -53,9 +53,11 @@ if __name__ == "__main__":
                                 plot_metric_vs_param, unit_labels)
     from locbench.plots import close_fig
     from locbench.sweep import parse_values, sweep
-    from locbench.synth import (feature_layout, grid_sources, head_layout,
+    from locbench.synth import (cylinder_grid, cylinder_sources,
+                                feature_layout, grid_sources, head_layout,
                                 interface_plane, parse_layout,
-                                random_int_layout, random_sources)
+                                quadrant_layout, random_int_layout,
+                                random_sources)
 
     st.set_page_config(page_title="locbench", page_icon="\U0001F3AF",
                        layout="wide")
@@ -103,6 +105,11 @@ if __name__ == "__main__":
             "波速模型", ["均质（直线传播）", "组合体（两介质）"])
         is_refr = not model_label.startswith("均质")
         is_comp = model_label.startswith("组合体")
+        # 几何模型：仅均质三维可选（组合体固定为长方体式平面分界）
+        if is_3d and not is_comp:
+            is_cyl = st.radio("几何模型", ["长方体", "圆柱"]) == "圆柱"
+        else:
+            is_cyl = False
         sz_unit = st.selectbox("尺寸单位", ["mm", "m"])          # 尺寸与间距共用
         u_sz = 1e-3 if sz_unit == "mm" else 1.0
 
@@ -117,18 +124,35 @@ if __name__ == "__main__":
 
         s_min, s_max, s_step = ((10.0, 2000.0, 10.0) if sz_unit == "mm"
                                 else (0.01, 2.0, 0.01))
-        _auto_default("size_x", 0.1 / u_sz)                    # 基准 100 mm
-        lx_in = st.number_input("试样尺寸 x", s_min, s_max, key="size_x",
-                                step=s_step, on_change=lambda: _unset_auto("size_x"))
-        _auto_default("size_y", 0.1 / u_sz)
-        ly_in = st.number_input("试样尺寸 y", s_min, s_max, key="size_y",
-                                step=s_step, on_change=lambda: _unset_auto("size_y"))
-        _auto_default("size_z", 0.2 / u_sz)                    # 基准 200 mm
-        lz_in = (st.number_input("试样尺寸 z", s_min, s_max, key="size_z",
-                                 step=s_step,
-                                 on_change=lambda: _unset_auto("size_z"))
-                 if is_3d else 0.0)
-        lx, ly, lz = lx_in * u_sz, ly_in * u_sz, lz_in * u_sz     # -> m
+        if is_cyl:
+            _auto_default("cyl_d", 0.05 / u_sz)                # 基准 50 mm
+            d_in = st.number_input("试样直径", s_min, s_max, key="cyl_d",
+                                   step=s_step,
+                                   on_change=lambda: _unset_auto("cyl_d"))
+            _auto_default("cyl_h", 0.1 / u_sz)                 # 基准 100 mm
+            h_in = st.number_input("试样高", s_min, s_max, key="cyl_h",
+                                   step=s_step,
+                                   on_change=lambda: _unset_auto("cyl_h"))
+            lx_in = ly_in = lz_in = d_in            # 占位：下游用 cyl 域
+        else:
+            _auto_default("size_x", 0.1 / u_sz)                    # 基准 100 mm
+            lx_in = st.number_input("试样尺寸 x", s_min, s_max, key="size_x",
+                                    step=s_step, on_change=lambda: _unset_auto("size_x"))
+            _auto_default("size_y", 0.1 / u_sz)
+            ly_in = st.number_input("试样尺寸 y", s_min, s_max, key="size_y",
+                                    step=s_step, on_change=lambda: _unset_auto("size_y"))
+            _auto_default("size_z", 0.2 / u_sz)                    # 基准 200 mm
+            lz_in = (st.number_input("试样尺寸 z", s_min, s_max, key="size_z",
+                                     step=s_step,
+                                     on_change=lambda: _unset_auto("size_z"))
+                     if is_3d else 0.0)
+        # 圆柱：轴线过原点沿 z，z∈[0, 高]；长方体：[0, 尺寸]
+        if is_cyl:
+            cyl = (d_in * u_sz, h_in * u_sz)                   # (直径, 高) 米
+            lx, ly, lz = cyl[0], cyl[0], cyl[1]                # 包围盒
+        else:
+            cyl = None
+            lx, ly, lz = lx_in * u_sz, ly_in * u_sz, lz_in * u_sz     # -> m
         # 介质 1 边界（米）：整试样盒（组合体的界面初值域/搜索域框架）
         refr_box = ((0.0, 0.0, 0.0), (lx, ly, lz))
         iface = None
@@ -163,10 +187,12 @@ if __name__ == "__main__":
         is_rp_now = str(st.session_state.get("loc_method", "Geiger")
                         ).startswith("折射")
         place_opts = ["几何特征", "随机", "自定义"]
-        if is_3d and (is_refr or is_rp_now):
+        if is_3d and (is_refr or is_rp_now) and not is_cyl:
             place_opts.append("压头（折射）")
         place_label = st.radio("传感器布置", place_opts,
-                               help=("压头（折射）＝试样盒六个面外各布若干"
+                               help=("几何特征＝试样几何特征点布传感器（长方体"
+                                     "为边/面/顶点组合，圆柱为侧面象限点）；"
+                                     "压头（折射）＝试样盒六个面外各布若干"
                                      "传感器（组合体场景的盒外布置，如加载"
                                      "压头上的传感器）；其余布置与组合体模型"
                                      "自由组合——介质按传感器位置自动归属"
@@ -190,37 +216,51 @@ if __name__ == "__main__":
             return "\n".join(lines)
 
         if place_label == "几何特征":
-            n_edges = 4 if is_3d else 2               # 每个边特征覆盖的边数
-            edge_names = ["横边", "纵边", "垂边"][: 3 if is_3d else 2]
-            face_names = ["侧面", "正面", "顶面"] if is_3d else []
-            ecols = st.columns(len(edge_names))          # 边一行
-            on = {f: ecols[i].checkbox(f, value=False)
-                  for i, f in enumerate(edge_names)}
-            if face_names:
-                fcols = st.columns(len(face_names))      # 面一行
-                for i, f in enumerate(face_names):
-                    on[f] = fcols[i].checkbox(f, value=False)
-            on["顶点"] = st.checkbox(                     # 顶点另起一行
-                "顶点", value=True,
-                help=f"全部{'8' if is_3d else '4'}个角点各布 1 个传感器"
-                     f"（经典试样监测布置）")
-            edge_n = {}
-            for f in ("横边", "纵边", "垂边"):
-                if on.get(f):
-                    edge_n[f] = st.number_input(
-                        f"{f}等分点数（每条边）", 1, 32, 4,
-                        help=f"与{f[0]}轴平行的边共 {n_edges} 条，每条边"
-                             " n+1 等分取 n 个内部等分点（不含端点角点）")
-            faces = [f for f in on if on[f] and f not in edge_n
-                     and f != "顶点"]
-            st.session_state["layout_text"] = _fmt_layout(
-                feature_layout((lx, ly, lz) if is_3d else (lx, ly),
-                               edges=edge_n, faces=faces,
-                               vertices=on.get("顶点", False)).values())
-            st.caption(f"横边/纵边/垂边 = 与 x/y/z 平行的全部"
-                       f"{'4' if is_3d else '2'}条边；侧面/正面/顶面 = "
-                       f"以 x/y/z 为法向的两个面（各取面心）；顶点 = "
-                       f"全部{'8' if is_3d else '4'}个角点")
+            if is_cyl:
+                # 圆柱：几何特征只有象限点一种
+                n_layers = st.number_input(
+                    "象限点层数", 1, 8, 2,
+                    help="圆柱侧面四个象限方位（+x/+y/−x/−y）各 1 个传感器"
+                         "为一层，沿试样高均分取内层（不含两端面），共 4n 个")
+                seed_gen = st.session_state.get("seed", 0)
+                st.session_state["layout_text"] = _fmt_layout(
+                    quadrant_layout(lx, lz, n_layers=int(n_layers),
+                                    seed=seed_gen).values())
+                st.caption(f"象限点 = 圆柱侧面四个象限方位（±x/±y）× "
+                           f"{int(n_layers)} 层，共 {4 * int(n_layers)} 个，"
+                           f"轴线沿 z 过原点")
+            else:
+                n_edges = 4 if is_3d else 2               # 每个边特征覆盖的边数
+                edge_names = ["横边", "纵边", "垂边"][: 3 if is_3d else 2]
+                face_names = ["侧面", "正面", "顶面"] if is_3d else []
+                ecols = st.columns(len(edge_names))          # 边一行
+                on = {f: ecols[i].checkbox(f, value=False)
+                      for i, f in enumerate(edge_names)}
+                if face_names:
+                    fcols = st.columns(len(face_names))      # 面一行
+                    for i, f in enumerate(face_names):
+                        on[f] = fcols[i].checkbox(f, value=False)
+                on["顶点"] = st.checkbox(                     # 顶点另起一行
+                    "顶点", value=True,
+                    help=f"全部{'8' if is_3d else '4'}个角点各布 1 个传感器"
+                         f"（经典试样监测布置）")
+                edge_n = {}
+                for f in ("横边", "纵边", "垂边"):
+                    if on.get(f):
+                        edge_n[f] = st.number_input(
+                            f"{f}等分点数（每条边）", 1, 32, 4,
+                            help=f"与{f[0]}轴平行的边共 {n_edges} 条，每条边"
+                                 " n+1 等分取 n 个内部等分点（不含端点角点）")
+                faces = [f for f in on if on[f] and f not in edge_n
+                         and f != "顶点"]
+                st.session_state["layout_text"] = _fmt_layout(
+                    feature_layout((lx, ly, lz) if is_3d else (lx, ly),
+                                   edges=edge_n, faces=faces,
+                                   vertices=on.get("顶点", False)).values())
+                st.caption(f"横边/纵边/垂边 = 与 x/y/z 平行的全部"
+                           f"{'4' if is_3d else '2'}条边；侧面/正面/顶面 = "
+                           f"以 x/y/z 为法向的两个面（各取面心）；顶点 = "
+                           f"全部{'8' if is_3d else '4'}个角点")
         elif place_label == "随机":
             ext_mm = ((int(round(lx * 1e3)), int(round(ly * 1e3)),
                        int(round(lz * 1e3))) if is_3d else
@@ -324,12 +364,19 @@ if __name__ == "__main__":
             dy_in = _spacing("网格间距 y", ly_in, "grid_dy")
             dz_in = (_spacing("网格间距 z", lz_in, "grid_dz") if is_3d else 0.0)
             n_sources = 0
-            spans = (lx, ly, lz) if is_3d else (lx, ly)
-            d_ins = (dx_in, dy_in, dz_in) if is_3d else (dx_in, dy_in)
-            counts = [max(1, int(round(s / (d * u_sz))))
-                      for s, d in zip(spans, d_ins)]
-            st.caption(f"格数 ≈ {'×'.join(map(str, counts))} = "
-                       f"{int(np.prod(counts))} 个震源（格心布源，不含边界）")
+            if is_cyl:
+                # 圆柱：包围盒格心过滤到圆盘内，格数取实际保留数
+                n_cyl = len(cylinder_grid(
+                    lx, lz, (dx_in * u_sz, dy_in * u_sz, dz_in * u_sz)))
+                st.caption(f"圆柱内格心布源（包围盒格心过滤到圆盘内）："
+                           f"{n_cyl} 个震源")
+            else:
+                spans = (lx, ly, lz) if is_3d else (lx, ly)
+                d_ins = (dx_in, dy_in, dz_in) if is_3d else (dx_in, dy_in)
+                counts = [max(1, int(round(s / (d * u_sz))))
+                          for s, d in zip(spans, d_ins)]
+                st.caption(f"格数 ≈ {'×'.join(map(str, counts))} = "
+                           f"{int(np.prod(counts))} 个震源（格心布源，不含边界）")
             grid_d_in = (dx_in, dy_in, dz_in)
         repeats = st.slider("震源重复次数", 1, 20, 3)
         seed = st.number_input("随机种子", 0, 1_000_000, key="seed")
@@ -455,7 +502,7 @@ if __name__ == "__main__":
                     seed, sigma_s, drop_p, fs_hz, v_true,
                     "refraction" if is_refr else "homogeneous",
                     (v2_true if is_refr else 0.0),
-                    tuple(map(tuple, box3)), iface)
+                    tuple(map(tuple, box3)), iface, cyl)
     if is_rp:
         PARAMS = dict(velocity=v_used, head_velocity=v2_used,
                       grid_size=int(grid_size), margin=margin,
@@ -489,18 +536,26 @@ if __name__ == "__main__":
     def make_scenario(scenario_key):
         (_, kind, n_sensors, lx, ly, lz, custom_key, source_mode, n_sources,
          spacing, repeats, seed, sigma, drop_p, fs, v_true, model,
-         head_v, refr_b, iface_k) = scenario_key
+         head_v, refr_b, iface_k, cyl) = scenario_key
         sensors = dict(custom_key)          # the text box is the single source
         dim = 3 if kind.startswith("3d") else 2
-        # 震源域 = 整个试样盒 [0, size]（组合体的震源可在任一块内），与
-        # 传感器包围盒解耦（部分布置如单边传感器阵列的包围盒会退化成
-        # 线/点，不能拿来布源）
-        box = (((0.0, 0.0, 0.0), (lx, ly, lz)) if dim == 3
-               else ((0.0, 0.0), (lx, ly)))
-        if source_mode.startswith("网格"):
-            sources = grid_sources(spacing=tuple(spacing[:dim]), box=box)
+        if cyl is not None:
+            # 圆柱试样：轴线过原点沿 z，震源域 = 圆柱内（x²+y²<R²）
+            d_c, h_c = cyl
+            if source_mode.startswith("网格"):
+                sources = cylinder_grid(d_c, h_c, spacing=spacing)
+            else:
+                sources = cylinder_sources(n_sources, d_c, h_c, seed=seed + 1)
         else:
-            sources = random_sources(n_sources, box=box, seed=seed + 1)
+            # 震源域 = 整个试样盒 [0, size]（组合体的震源可在任一块内），与
+            # 传感器包围盒解耦（部分布置如单边传感器阵列的包围盒会退化成
+            # 线/点，不能拿来布源）
+            box = (((0.0, 0.0, 0.0), (lx, ly, lz)) if dim == 3
+                   else ((0.0, 0.0), (lx, ly)))
+            if source_mode.startswith("网格"):
+                sources = grid_sources(spacing=tuple(spacing[:dim]), box=box)
+            else:
+                sources = random_sources(n_sources, box=box, seed=seed + 1)
         return Scenario(sensors=sensors, sources=sources, velocity=v_true,
                         sigma=sigma, drop_p=drop_p, fs=fs,
                         seed=seed + 2, repeats=repeats,
