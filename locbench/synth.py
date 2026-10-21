@@ -267,18 +267,23 @@ def composite_layout(size, per_face: int = 2, seed=None, rng=None) -> Dict[int, 
 def quadrant_layout(diameter: float, height: float, n_layers: int = 2,
                     seed=None, rng=None) -> Dict[int, tuple]:
     """Sensors at the four quadrant azimuths (+x, +y, -x, -y) of the
-    cylindrical SIDE surface, at ``n_layers`` interior height levels
-    (``z = (k + 0.5) * height / n_layers``) -> ``4 * n_layers`` sensors,
-    cylinder axis = z through (0, 0), z in ``[0, height]``.  Keys 1..n,
-    layer by layer; deterministic; SI units."""
+    cylindrical SIDE surface, on ``n_layers`` height levels -> ``4 *
+    n_layers`` sensors.  ``n_layers == 1`` puts the single layer at mid
+    height; ``n_layers > 1`` spreads the layers evenly from the BOTTOM
+    to the TOP face (z = 0 and z = height included).  Cylinder axis = z
+    through (0, 0), z in ``[0, height]``.  Keys 1..n, layer by layer;
+    deterministic; SI units."""
     if diameter <= 0 or height <= 0:
         raise ValueError("圆柱的直径和高必须为正")
     if n_layers < 1:
         raise ValueError("象限点层数至少为 1")
     r = diameter / 2.0
+    if n_layers == 1:
+        zs = [0.5 * height]
+    else:
+        zs = list(np.linspace(0.0, height, n_layers))
     pts: list = []
-    for k in range(n_layers):
-        z = (k + 0.5) * height / n_layers
+    for z in zs:
         for q in range(4):
             a = np.radians(90.0 * q)
             pts.append((r * np.cos(a), r * np.sin(a), z))

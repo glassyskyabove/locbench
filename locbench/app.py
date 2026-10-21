@@ -237,7 +237,8 @@ if __name__ == "__main__":
                 n_layers = st.number_input(
                     "象限点层数", 1, 8, 2,
                     help="圆柱侧面四个象限方位（+x/+y/−x/−y）各 1 个传感器"
-                         "为一层，沿试样高均分取内层（不含两端面），共 4n 个")
+                         "为一层：1 层 = 半高单层；2 层及以上沿试样高均分"
+                         "且含底、顶两端面，共 4n 个")
                 seed_gen = st.session_state.get("seed", 0)
                 st.session_state["layout_text"] = _fmt_layout(
                     quadrant_layout(lx, lz, n_layers=int(n_layers),

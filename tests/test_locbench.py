@@ -812,11 +812,15 @@ def test_quadrant_layout_and_cylinder_sources():
     the disc."""
     lay = quadrant_layout(0.05, 0.1, n_layers=2)
     assert len(lay) == 8
-    for k in range(2):
-        z_expect = (k + 0.5) * 0.1 / 2
+    for k, z_expect in enumerate((0.0, 0.1)):      # 2 层含底、顶两端面
         for q, (dx, dy) in enumerate(((1, 0), (0, 1), (-1, 0), (0, -1))):
             p = np.asarray(lay[4 * k + q + 1])
             assert np.allclose(p, (0.025 * dx, 0.025 * dy, z_expect))
+    lay3 = quadrant_layout(0.05, 0.1, n_layers=3)  # 3 层 = 0 / 半高 / 顶
+    zs = sorted({round(p[2], 12) for p in lay3.values()})
+    assert zs == [0.0, 0.05, 0.1]
+    lay1 = quadrant_layout(0.05, 0.1, n_layers=1)  # 单层 = 半高
+    assert {round(p[2], 12) for p in lay1.values()} == {0.05}
     assert quadrant_layout(0.05, 0.1, 2) == lay            # deterministic
     for kwargs in ({"diameter": 0.0}, {"height": -1}, {"n_layers": 0}):
         base = {"diameter": 0.05, "height": 0.1, "n_layers": 1}
