@@ -165,8 +165,49 @@ def _plane_polygon(point, n_hat, size):
     return poly
 
 
+def _box_faces(lo, hi):
+    """长方体 [lo, hi] 的 6 个面（每面 4 顶点，顺序无所谓）。"""
+    l = np.asarray(lo, dtype=float)
+    h = np.asarray(hi, dtype=float)
+    faces = []
+    for ax in range(3):
+        others = [i for i in range(3) if i != ax]
+        grid = np.array([[l[others[0]], l[others[1]]],
+                         [l[others[0]], h[others[1]]],
+                         [h[others[0]], h[others[1]]],
+                         [h[others[0]], l[others[1]]]])
+        for side in (l[ax], h[ax]):
+            quad = np.zeros((4, 3))
+            quad[:, ax] = side
+            quad[:, others[0]] = grid[:, 0]
+            quad[:, others[1]] = grid[:, 1]
+            faces.append(quad)
+    return faces
+
+
+def _head_slabs(dims, length):
+    """压头-岩石几何：与岩石六面接触的 6 块压头（每块为覆盖岩石截面、
+    沿该面法向外延 ``length`` 的板），返回全部面片。岩石占据
+    [0, dims]^3（米）。"""
+    L = np.asarray(dims, dtype=float)
+    faces = []
+    for ax in range(3):
+        for side in (0.0, 1.0):
+            lo = np.zeros(3)
+            hi = L.copy()
+            if side:
+                lo[ax] = L[ax]
+                hi[ax] = L[ax] + length
+            else:
+                lo[ax] = -length
+                hi[ax] = 0.0
+            faces += _box_faces(lo, hi)
+    return faces
+
+
 def plot_layout(sensors: dict, sources=None, located=None,
-                unit: str = "m", factor: float = 1.0, interface=None):
+                unit: str = "m", factor: float = 1.0, interface=None,
+                head_blocks=None):
     """传感器阵列布置 + 真值/定位震源；真值->定位的线段即误差向量。2-D/3-D
     跟随传感器维度。坐标按显示单位缩放（数据本身是米，``factor``
     米->显示单位，如 mm 取 1e3），轴标注带单位。
@@ -174,7 +215,11 @@ def plot_layout(sensors: dict, sources=None, located=None,
     ``interface = (point, normal, size)`` 画两介质分界面（组合体场景，
     任意取向）：``normal`` 指向介质 2（长度任意），``size`` = 试样尺寸
     （米）；3-D 画「平面 ∩ 试样盒」的半透明蓝色多边形（先画，使传感器/
-    震源叠在其上），2-D 画平面与二维盒的交线（虚线）；None 不画。"""
+    震源叠在其上），2-D 画平面与二维盒的交线（虚线）；None 不画。
+
+    ``head_blocks = (dims, length)`` 画压头-岩石几何的六块压头（浅蓝色
+    半透明）：岩石占 [0, dims]^3，每块压头覆盖岩石一个面并向外延伸
+    ``length``（米）；3-D 专用，先画使传感器/震源叠在其上；None 不画。"""
     P = np.stack([np.asarray(p, dtype=float) for p in sensors.values()]) * factor
     dim = P.shape[1]
     # 纯 OO Figure：不碰 pyplot 的全局 figure 注册表。streamlit 每个会话
@@ -206,6 +251,14 @@ def plot_layout(sensors: dict, sources=None, located=None,
                 seg = np.asarray([[v[0], v[1]] for v in poly]) * factor
                 ax.plot(seg[:, 0], seg[:, 1], "--", c="tab:blue",
                         lw=1.2, alpha=0.7)
+    if head_blocks is not None and dim == 3:
+        # 压头-岩石：六块压头（浅蓝半透明），先画使点叠在其上
+        from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+        dims_b, lh_b = head_blocks
+        faces = _head_slabs(dims_b, float(lh_b))
+        ax.add_collection3d(Poly3DCollection(
+            [np.asarray(f) * factor for f in faces],
+            alpha=0.12, facecolor="lightblue", edgecolor="none"))
     if dim == 3:
         ax.scatter(P[:, 0], P[:, 1], P[:, 2], marker="s", c="k",
                    label="传感器", s=28)

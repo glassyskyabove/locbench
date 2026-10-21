@@ -947,3 +947,24 @@ def test_dashboard_head_rock_geometry_flow():
     assert not at.exception, [e.value for e in at.exception]
     assert not at.error, [e.value for e in at.error]
     assert any(m.value == "100%" for m in at.metric)      # 收敛率卡片
+
+
+def test_plot_layout_draws_head_blocks():
+    """plot_layout(head_blocks=(dims, length))：压头-岩石的六块压头以浅蓝
+    半透明面片画进 3-D 布置图（单个 Poly3DCollection、36 个四边形面片，
+    顶点全部落在 [-length, dims+length] 包围盒内）；不传则不画。"""
+    import matplotlib
+    matplotlib.use("Agg")
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+    from locbench.plots import plot_layout
+    sensors = corners_layout(size=(0.1, 0.1, 0.1))
+    n_plain = len(plot_layout(sensors).axes[0].collections)
+    fig = plot_layout(sensors, head_blocks=((0.1, 0.1, 0.1), 0.02))
+    ax3 = fig.axes[0]
+    surf = [c for c in ax3.collections if isinstance(c, Poly3DCollection)]
+    assert len(ax3.collections) == n_plain + 1        # +1 = 压头面片集合
+    assert len(surf) == 1
+    faces = np.asarray(surf[0]._faces)                # (36, 4, 3)
+    assert faces.shape == (36, 4, 3)                  # 6 块压头 × 6 面
+    flat = faces.reshape(-1, 3)
+    assert (flat >= -0.0201).all() and (flat <= 0.1201).all()

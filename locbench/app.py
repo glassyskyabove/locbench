@@ -135,10 +135,7 @@ if __name__ == "__main__":
         # 沿面法向的长度（默认 0.2×最短岩石边，随尺寸联动，改后脱钩）
         head_len_in = None
         if is_comp and geom_comp == "压头-岩石":
-            _auto_default("head_len_in", round(0.2 * min(
-                st.session_state.get("size_x", 100.0),
-                st.session_state.get("size_y", 100.0),
-                st.session_state.get("size_z", 200.0)), 9))
+            _auto_default("head_len_in", 0.1 / u_sz)           # 基准 100 mm
             head_len_in = st.number_input(
                 "压头长度", s_min, s_max, key="head_len_in", step=s_step,
                 on_change=lambda: _unset_auto("head_len_in"),
@@ -161,7 +158,8 @@ if __name__ == "__main__":
             _auto_default("size_y", 0.1 / u_sz)
             ly_in = st.number_input("试样尺寸 y", s_min, s_max, key="size_y",
                                     step=s_step, on_change=lambda: _unset_auto("size_y"))
-            _auto_default("size_z", 0.2 / u_sz)                    # 基准 200 mm
+            _auto_default("size_z", (0.1 if (is_comp and geom_comp == "压头-岩石")
+                                     else 0.2) / u_sz)   # 基准 200 mm / 压头-岩石 100 mm
             lz_in = (st.number_input("试样尺寸 z", s_min, s_max, key="size_z",
                                      step=s_step,
                                      on_change=lambda: _unset_auto("size_z"))
@@ -640,6 +638,8 @@ if __name__ == "__main__":
             st.subheader("定位结果（红=定位，绿=真值，黑=传感器"
                          + ("，蓝面=两介质界面"
                             if is_comp and geom_comp == "岩石-岩石" else "")
+                         + ("，浅蓝=压头"
+                            if is_comp and geom_comp == "压头-岩石" else "")
                          + "）")
             sc = make_scenario(SCENARIO_KEY)
             located = np.full_like(np.asarray(sc.sources, dtype=float), np.nan)
@@ -649,7 +649,10 @@ if __name__ == "__main__":
                               unit=disp_unit, factor=factor,
                               interface=((iface[0], iface[1], (lx, ly, lz))
                                          if is_comp and geom_comp == "岩石-岩石"
-                                         else None))
+                                         else None),
+                              head_blocks=((lx, ly, lz), head_len_in * u_sz)
+                                          if is_comp and geom_comp == "压头-岩石"
+                                          else None)
             st.pyplot(fig)
             close_fig(fig)
         with right:
