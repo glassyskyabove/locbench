@@ -647,7 +647,7 @@ def test_composite_scenario_round_trip_both_blocks():
     assert len(df) == 2 and df["err"].notna().all()
     assert df["converged"].all()
     assert (df["velocity"] == v1).all()        # 平面模式：v1 固定不反演
-    assert (df["err"] < 5e-2).all()            # 错误侧有界（已知限制）
+    assert (df["err"] < 1e-4).all()            # 0 误差 -> 精确
     for src, side in ((src_a, 1), (src_b, 2)):
         arr, _ = make_arrivals(sensors, src, velocity=v1, model="refraction",
                                v2=v2, box=box, interface=iface, seed=5)
@@ -680,21 +680,19 @@ def test_tilted_interface_scenario_round_trip():
         sc = Scenario(sensors=sensors, sources=np.stack([src_a, src_b]),
                       velocity=v1, model="refraction", v2=v2,
                       box=box, interface=(pt, n), seed=1)
-        loc = RefractionLocator(sensors, box=box, velocity=v2,
+        loc = RefractionLocator(sensors, box=box, velocity=v1,
                                 velocity2=v2, interface=(pt, n))
         df = run_trials(loc, sc)
-        # 单网格选侧的已知限制（待决策：失配可疑时是否补解另一侧）：
-        # 个别源会落在错误侧（tens-of-mm），正确侧源精确
-        assert len(df) == 2 and df["err"].notna().all()
-        assert (df["err"] < 5e-2).all()
+        # 双侧各解一次按失配择优：0 误差 -> 精确定位、介质正确
+        assert len(df) == 2 and (df["err"] < 1e-4).all()
         assert df["converged"].all()
         for src, side in ((src_a, 1), (src_b, 2)):
             arr, _ = make_arrivals(sensors, src, velocity=v1,
                                    model="refraction", v2=v2,
                                    box=box, interface=(pt, n), seed=5)
             res = loc.locate(arr, true_coords=src)
-            if res.extra["true_error"] < 1e-3:         # 正确侧时介质正确
-                assert res.extra["source_medium"] == side
+            assert res.extra["source_medium"] == side
+            assert res.extra["true_error"] < 1e-4
     # v1 == v2 时平面正演退化为直线（与均质一致）
     pt, n = interface_plane((0.1, 0.1, 0.1), 30.0, 20.0, 0.1)
     src = np.array([0.04, 0.06, 0.03])
