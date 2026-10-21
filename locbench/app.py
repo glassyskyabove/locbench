@@ -105,10 +105,17 @@ if __name__ == "__main__":
             "波速模型", ["均质（直线传播）", "组合体（两介质）"])
         is_refr = not model_label.startswith("均质")
         is_comp = model_label.startswith("组合体")
-        # 几何模型：仅均质三维可选（组合体固定为长方体式平面分界）
-        if is_3d and not is_comp:
-            is_cyl = st.radio("几何模型", ["长方体", "圆柱"]) == "圆柱"
+        # 几何模型：均质 = 长方体/圆柱；组合体 = 岩石-岩石（单一平面分界）/
+        # 压头-岩石（六面压头与岩石接触，盒面折射）
+        if is_3d:
+            if is_comp:
+                geom_comp = st.radio("几何模型", ["岩石-岩石", "压头-岩石"])
+                is_cyl = False
+            else:
+                geom_comp = None
+                is_cyl = st.radio("几何模型", ["长方体", "圆柱"]) == "圆柱"
         else:
+            geom_comp = None
             is_cyl = False
         sz_unit = st.selectbox("尺寸单位", ["mm", "m"])          # 尺寸与间距共用
         u_sz = 1e-3 if sz_unit == "mm" else 1.0
@@ -124,6 +131,19 @@ if __name__ == "__main__":
 
         s_min, s_max, s_step = ((10.0, 2000.0, 10.0) if sz_unit == "mm"
                                 else (0.01, 2.0, 0.01))
+        # 压头-岩石：压头与岩石六面接触，接触面尺寸 = 岩石截面，故只需压头
+        # 沿面法向的长度（默认 0.2×最短岩石边，随尺寸联动，改后脱钩）
+        head_len_in = None
+        if is_comp and geom_comp == "压头-岩石":
+            _auto_default("head_len_in", round(0.2 * min(
+                st.session_state.get("size_x", 100.0),
+                st.session_state.get("size_y", 100.0),
+                st.session_state.get("size_z", 200.0)), 9))
+            head_len_in = st.number_input(
+                "压头长度", s_min, s_max, key="head_len_in", step=s_step,
+                on_change=lambda: _unset_auto("head_len_in"),
+                help="每个压头沿自身面法向的厚度；压头与岩石六个面完全接触"
+                     "（接触面尺寸 = 岩石截面），传感器布在压头外表面上")
         if is_cyl:
             _auto_default("cyl_d", 0.05 / u_sz)                # 基准 50 mm
             d_in = st.number_input("试样直径", s_min, s_max, key="cyl_d",
@@ -156,7 +176,7 @@ if __name__ == "__main__":
         # 介质 1 边界（米）：整试样盒（组合体的界面初值域/搜索域框架）
         refr_box = ((0.0, 0.0, 0.0), (lx, ly, lz))
         iface = None
-        if is_comp:
+        if is_comp and geom_comp == "岩石-岩石":
             phi_i = st.slider(
                 "界面法向方位角（°）", 0, 359, 0, 5,
                 help="法向水平投影的方向：0=+x，90=+y，180=−x，270=−y；"
@@ -270,25 +290,31 @@ if __name__ == "__main__":
             n_per_face = st.number_input("每个压头（面）传感器数", 1, 8, 2,
                                          help="试样盒六个面外各布 n 个传感器"
                                               "（面内随机位置），共 6n 个")
-            o_min, o_max, o_step = ((0.5, 100.0, 0.5) if sz_unit == "mm"
-                                    else (0.0005, 0.1, 0.0005))
-            _auto_default("head_off_in", round(0.2 * min(lx_in, ly_in,
-                                                         lz_in), 9))
-            head_off_in = st.number_input(
-                "压头外距", o_min, o_max, key="head_off_in", step=o_step,
-                on_change=lambda: _unset_auto("head_off_in"),
-                help=f"传感器离试样面的垂直距离（当前单位 {sz_unit}）；"
-                     "默认 0.2×最短边。偏距越大（论文 5–50 mm 不等），压头"
-                     "段走时差异越大，v₁ 反演越可分辨；全部传感器小偏距"
-                     "且速度对比度大时，v₁-位置权衡会病态（折射法误差与"
-                     "Geiger 相当甚至更差）")
+            if is_comp and geom_comp == "压头-岩石":
+                head_off_in = head_len_in   # 压头与岩石六面接触：外距=压头长度
+                off_note = f"压头-岩石几何：传感器布在压头外表面（距岩石面 = 压头长度 {head_len_in:g} {sz_unit}）"
+            else:
+                o_min, o_max, o_step = ((0.5, 100.0, 0.5) if sz_unit == "mm"
+                                        else (0.0005, 0.1, 0.0005))
+                _auto_default("head_off_in", round(0.2 * min(lx_in, ly_in,
+                                                             lz_in), 9))
+                head_off_in = st.number_input(
+                    "压头外距", o_min, o_max, key="head_off_in", step=o_step,
+                    on_change=lambda: _unset_auto("head_off_in"),
+                    help=f"传感器离试样面的垂直距离（当前单位 {sz_unit}）；"
+                         "默认 0.2×最短边。偏距越大（论文 5–50 mm 不等），压头"
+                         "段走时差异越大，v₁ 反演越可分辨；全部传感器小偏距"
+                         "且速度对比度大时，v₁-位置权衡会病态（折射法误差与"
+                         "Geiger 相当甚至更差）")
+                off_note = f"压头外距 {head_off_in:g} {sz_unit}"
             # 随机种子控件在侧栏更下方：先读 session_state（首跑用默认 0）
             seed_gen = st.session_state.get("seed", 0)
             st.session_state["layout_text"] = _fmt_layout(
                 head_layout((lx, ly, lz), per_face=int(n_per_face),
                             offset=head_off_in * u_sz, seed=seed_gen).values())
             st.caption(f"压头布置 = 六个面（±x/±y/±z）各 {int(n_per_face)} 个"
-                       f"传感器，共 {6 * int(n_per_face)} 个，全部在试样盒外")
+                       f"传感器，共 {6 * int(n_per_face)} 个，全部在试样盒外"
+                       f"（{off_note}）")
         elif "layout_text" not in st.session_state:
             ex = ([(0, 0, 0), (100, 0, 0), (0, 100, 0), (100, 100, 0), (50, 50, 100)]
                   if is_3d else [(0, 0), (100, 0), (0, 100), (100, 100)])
@@ -316,20 +342,26 @@ if __name__ == "__main__":
                        f"增加等分点数")
         custom_key = tuple(sorted(custom.items()))
 
-        # 两介质几何预检：组合体（单一平面分界）下任何位置的传感器都必属
-        # 一个介质，无几何限制；但"均质正演 + 折射定位器"组合走 aelib 盒面
-        # 模式（interface=None），要求传感器恰在 0 或 1 个轴向上处于试样盒
-        # 外。提前判掉并给中文引导，避免英文 ValueError 直接外露
+        # 两介质几何预检：岩石-岩石（单一平面分界）下任何位置的传感器都
+        # 必属一个介质，无几何限制；压头-岩石与"均质正演 + 折射定位器"
+        # 走 aelib 盒面模式，要求传感器恰在 0 或 1 个轴向上处于岩石盒外
+        # （即装在其中一个介质上）。提前判掉并给中文引导
         def _head_problem():
             if not is_3d:
                 return "两介质定位为三维布置，当前维度为二维"
-            if is_comp:
+            if is_comp and geom_comp == "岩石-岩石":
                 return None        # 平面界面：每个传感器必属一个介质
             lo, hi = (np.asarray(b, dtype=float) for b in refr_box)
             for p in np.asarray(list(custom.values()), dtype=float):
                 out = [a for a in range(3) if p[a] < lo[a] or p[a] > hi[a]]
                 if len(out) > 1:
                     disp = ", ".join(f"{v * factor:.6g}" for v in p)
+                    if is_comp:
+                        return (f"首个不满足的传感器（{disp_unit}）：({disp}) "
+                                f"同时在 {len(out)} 个轴向上处于岩石盒外"
+                                "——压头-岩石几何要求传感器装在压头上"
+                                "（恰在一个轴向上出界）；改用\"岩石-岩石\""
+                                "几何则任意布置均可")
                     return (f"首个不满足的传感器（{disp_unit}）：({disp}) 同时"
                             f"在 {len(out)} 个轴向上处于试样盒外——均质正演下"
                             "折射定位器按盒面分介质，传感器须装在介质上"
@@ -498,7 +530,10 @@ if __name__ == "__main__":
                     seed, sigma_s, drop_p, fs_hz, v_true,
                     "refraction" if is_refr else "homogeneous",
                     (v2_true if is_refr else 0.0),
-                    tuple(map(tuple, box3)), iface, cyl)
+                    tuple(map(tuple, box3)), iface, cyl,
+                    (geom_comp if is_comp else None),
+                    (head_len_in if is_comp and geom_comp == "压头-岩石"
+                     else None))
     if is_rp:
         PARAMS = dict(velocity=v_used, head_velocity=v2_used,
                       grid_size=int(grid_size), margin=margin,
@@ -521,8 +556,9 @@ if __name__ == "__main__":
             kw.pop(exclude, None)            # a swept param must not repeat
         if refr:
             kw.update(box=box3)              # 介质 1 边界 = 搜索域（米）
-            if is_comp:
+            if is_comp and geom_comp == "岩石-岩石":
                 kw.update(interface=iface)   # 单一平面分界（任意取向）
+            # 压头-岩石：不传 interface -> aelib 盒面模式（6 面折射）
         elif scenario_key[1].startswith("2d"):
             kw.update(mode="2d")
         return kw
@@ -532,7 +568,7 @@ if __name__ == "__main__":
     def make_scenario(scenario_key):
         (_, kind, n_sensors, lx, ly, lz, custom_key, source_mode, n_sources,
          spacing, repeats, seed, sigma, drop_p, fs, v_true, model,
-         head_v, refr_b, iface_k, cyl) = scenario_key
+         head_v, refr_b, iface_k, cyl, geom_c, head_len) = scenario_key
         sensors = dict(custom_key)          # the text box is the single source
         dim = 3 if kind.startswith("3d") else 2
         if cyl is not None:
@@ -601,7 +637,9 @@ if __name__ == "__main__":
         left, right = st.columns([3, 2])
         with left:
             st.subheader("定位结果（红=定位，绿=真值，黑=传感器"
-                         + ("，蓝面=两介质界面" if is_comp else "") + "）")
+                         + ("，蓝面=两介质界面"
+                            if is_comp and geom_comp == "岩石-岩石" else "")
+                         + "）")
             sc = make_scenario(SCENARIO_KEY)
             located = np.full_like(np.asarray(sc.sources, dtype=float), np.nan)
             for r in df[df["err"].notna()].itertuples():
@@ -609,7 +647,8 @@ if __name__ == "__main__":
             fig = plot_layout(sc.sensors, sc.sources, located,
                               unit=disp_unit, factor=factor,
                               interface=((iface[0], iface[1], (lx, ly, lz))
-                                         if is_comp else None))
+                                         if is_comp and geom_comp == "岩石-岩石"
+                                         else None))
             st.pyplot(fig)
             close_fig(fig)
         with right:

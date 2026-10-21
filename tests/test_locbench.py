@@ -892,9 +892,54 @@ def test_dashboard_cylinder_geometry_flow():
     at.run()
     assert not at.exception, [e.value for e in at.exception]
     assert not at.error, [e.value for e in at.error]
-    # 组合体下几何模型隐藏
+    # 组合体下几何模型切换为 岩石-岩石/压头-岩石（默认岩石-岩石 = 平面分界）
     next(r for r in at.sidebar.radio
          if "波速模型" in r.label).set_value("组合体（两介质）")
     at.run()
-    assert not any("几何模型" in r.label for r in at.sidebar.radio)
+    geom_c = next(r for r in at.sidebar.radio if "几何模型" in r.label)
+    assert geom_c.options == ["岩石-岩石", "压头-岩石"]
+    assert geom_c.value == "岩石-岩石"
     assert not at.exception and not at.error
+
+
+def test_dashboard_head_rock_geometry_flow():
+    """AppTest：组合体 + 几何模型=压头-岩石 —— 出现\"压头长度\"输入、
+    界面滑条（方位/倾角/偏移）隐藏；压头布置的外距自动 = 压头长度
+    （无外距输入框）；折射定位器端到端可跑。"""
+    import pytest
+    pytest.importorskip("streamlit")
+    from pathlib import Path
+    from streamlit.testing.v1 import AppTest
+
+    app = Path(__file__).resolve().parents[1] / "locbench" / "app.py"
+    at = AppTest.from_file(str(app), default_timeout=300)
+    at.run()
+    assert not at.exception
+    next(r for r in at.sidebar.radio if "震源布置" in r.label).set_value("随机震源")
+    at.run()
+    next(s for s in at.sidebar.slider if s.label == "震源数").set_value(3)
+    next(t for t in at.text_input
+         if t.label.startswith("取值")).set_value("5300")
+    next(r for r in at.sidebar.radio
+         if "波速模型" in r.label).set_value("组合体（两介质）")
+    at.run()
+    next(r for r in at.sidebar.radio
+         if "几何模型" in r.label).set_value("压头-岩石")
+    at.run()
+    # 压头长度输入出现；界面滑条隐藏
+    assert any("压头长度" in n.label for n in at.sidebar.number_input)
+    assert not any("界面法向方位角" in s.label for s in at.sidebar.slider)
+    # 压头布置：无外距输入框（自动 = 压头长度），可生成坐标
+    next(r for r in at.sidebar.radio
+         if "传感器布置" in r.label).set_value("压头（折射）")
+    at.run()
+    assert not any("压头外距" in n.label for n in at.sidebar.number_input)
+    txt = next(t for t in at.sidebar.text_area if "传感器坐标" in t.label)
+    assert len(txt.value.splitlines()) == 12              # 6 面 x 2
+    # 折射定位器端到端
+    next(r for r in at.sidebar.radio
+         if "定位算法" in r.label).set_value("折射路径 (locRP)")
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert not at.error, [e.value for e in at.error]
+    assert any(m.value == "100%" for m in at.metric)      # 收敛率卡片
