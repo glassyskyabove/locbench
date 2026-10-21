@@ -517,7 +517,7 @@ def test_refraction_sweep_over_v1_init(tmp_path):
 def test_dashboard_refraction_method_needs_two_media():
     """AppTest 回归（两介质推广后语义）：(a) 只选折射定位器、布置仍是
     角点（正演保持均质）——角点传感器现在是合法的介质 1 直线射线传感器，
-    面板应当直接跑通而不是报错；\"压头（折射）\"布置选项此时就出现
+    面板应当直接跑通而不是报错；\"压头\"布置选项此时就出现
     （不必先切正演模型；组合体场景无专属布置，共用全部布置）。
     (b) 自定义输入\"同时在两个轴向上出界\"的传感器 -> 侧栏中文警告 +
     结果区中文错误并停止，aelib 的英文 ValueError 不外露。"""
@@ -549,12 +549,12 @@ def test_dashboard_refraction_method_needs_two_media():
     assert not at.error
     place_opts = next(r for r in at.sidebar.radio
                       if "传感器布置" in r.label).options
-    assert "压头（折射）" in place_opts
+    assert "压头" in place_opts
     assert "组合体（两介质）" not in place_opts   # 组合体共用全部布置
 
     # 按指引切到压头布置（正演仍为均质 = 折射法吃错模型的数据）：可运行
     next(r for r in at.sidebar.radio
-         if "传感器布置" in r.label).set_value("压头（折射）")
+         if "传感器布置" in r.label).set_value("压头")
     at.run()
     assert not at.exception, [e.value for e in at.exception]
     assert not at.error
@@ -935,7 +935,7 @@ def test_dashboard_head_rock_geometry_flow():
     assert not any("界面法向方位角" in s.label for s in at.sidebar.slider)
     # 压头布置：无外距输入框（自动 = 压头长度），可生成坐标
     next(r for r in at.sidebar.radio
-         if "传感器布置" in r.label).set_value("压头（折射）")
+         if "传感器布置" in r.label).set_value("压头")
     at.run()
     assert not any("压头外距" in n.label for n in at.sidebar.number_input)
     txt = next(t for t in at.sidebar.text_area if "传感器坐标" in t.label)

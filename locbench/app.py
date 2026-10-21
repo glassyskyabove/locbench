@@ -202,11 +202,11 @@ if __name__ == "__main__":
                         ).startswith("折射")
         place_opts = ["几何特征", "随机", "自定义"]
         if is_3d and (is_refr or is_rp_now) and not is_cyl:
-            place_opts.append("压头（折射）")
+            place_opts.append("压头")
         place_label = st.radio("传感器布置", place_opts,
                                help=("几何特征＝试样几何特征点布传感器（长方体"
                                      "为边/面/顶点组合，圆柱为侧面象限点）；"
-                                     "压头（折射）＝试样盒六个面外各布若干"
+                                     "压头＝试样盒六个面外各布若干"
                                      "传感器（组合体场景的盒外布置，如加载"
                                      "压头上的传感器）；其余布置与组合体模型"
                                      "自由组合——介质按传感器位置自动归属"
@@ -214,7 +214,7 @@ if __name__ == "__main__":
         kind = f"{'3d' if is_3d else '2d'}-" + {"几何特征": "feature",
                                                 "随机": "random",
                                                 "自定义": "custom",
-                                                "压头（折射）": "head"}[place_label]
+                                                "压头": "head"}[place_label]
         n_wanted = st.slider("传感器数", 4, 32, 8) if place_label == "随机" else 0
 
         def _fmt_layout(m_pts):
@@ -255,10 +255,7 @@ if __name__ == "__main__":
                     fcols = st.columns(len(face_names))      # 面一行
                     for i, f in enumerate(face_names):
                         on[f] = fcols[i].checkbox(f, value=False)
-                on["顶点"] = st.checkbox(                     # 顶点另起一行
-                    "顶点", value=True,
-                    help=f"全部{'8' if is_3d else '4'}个角点各布 1 个传感器"
-                         f"（经典试样监测布置）")
+                on["顶点"] = st.checkbox("顶点", value=True)
                 edge_n = {}
                 for f in ("横边", "纵边", "垂边"):
                     if on.get(f):
@@ -285,7 +282,7 @@ if __name__ == "__main__":
             rand = random_int_layout(n_wanted, extent=ext_mm, seed=seed_gen)
             st.session_state["layout_text"] = _fmt_layout(
                 tuple(v * 1e-3 for v in p) for p in rand.values())
-        elif place_label == "压头（折射）":
+        elif place_label == "压头":
             n_per_face = st.number_input("每个压头（面）传感器数", 1, 8, 2,
                                          help="试样盒六个面外各布 n 个传感器"
                                               "（面内随机位置），共 6n 个")
