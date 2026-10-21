@@ -246,7 +246,7 @@ def composite_layout(size, per_face: int = 2, seed=None, rng=None) -> Dict[int, 
     sensor lands on is its medium (classified at use time by aelib), so
     the plane can move/tilt freely without regenerating the layout --
     pair with ``Scenario(model="refraction", interface=(point, normal),
-    head_velocity=<medium-2 velocity>)`` and aelib's plane-mode
+    v2=<medium-2 velocity>)`` and aelib's plane-mode
     RefractionLocator."""
     rng = _rng(rng, seed)
     size = np.asarray(size, dtype=float)
@@ -401,7 +401,7 @@ def random_sources(n: int, sensors: dict = None, margin: float = 0.0,
 def make_arrivals(sensors: dict, source, velocity: float, t0: float = 0.0,
                   sigma: float = 0.0, drop_p: float = 0.0, fs: float = 0.0,
                   seed=None, rng=None, model: str = "homogeneous",
-                  head_velocity: float = 0.0, box=None,
+                  v2: float = 0.0, box=None,
                   interface=None) -> Tuple[dict, dict]:
     """Exact arrivals plus simulated pick errors.
 
@@ -414,7 +414,7 @@ def make_arrivals(sensors: dict, source, velocity: float, t0: float = 0.0,
       is given (normal into medium 2), a SINGLE arbitrarily-oriented
       plane splits the media and ``box`` is only a fallback.  In both
       cases ``velocity`` is the medium-1 velocity v1 and
-      ``head_velocity`` the known medium-2 velocity v2;  ``v1 == v2``
+      ``v2`` the known medium-2 velocity;  ``v1 == v2``
       degenerates to the homogeneous model.
     - ``sigma``: Gaussian picking noise per pick (s)
     - ``fs``: sampling rate (Hz) -- when > 0 the arrival times are
@@ -445,7 +445,7 @@ def make_arrivals(sensors: dict, source, velocity: float, t0: float = 0.0,
             dirs = classify_heads(S, lo, hi)
         t = t0 + travel_times_refraction(
             np.asarray(source, dtype=float), S, dirs, velocity,
-            head_velocity, lo, hi, interface=interface)
+            v2, lo, hi, interface=interface)
     elif model == "homogeneous":
         d = np.linalg.norm(S - np.asarray(source, dtype=float), axis=1)
         t = t0 + d / velocity

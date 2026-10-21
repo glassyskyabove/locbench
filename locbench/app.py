@@ -550,7 +550,7 @@ if __name__ == "__main__":
                     (head_len_in if is_comp and geom_comp == "压头-岩石"
                      else None))
     if is_rp:
-        PARAMS = dict(velocity=v_used, head_velocity=v2_used,
+        PARAMS = dict(velocity=v_used, velocity2=v2_used,
                       grid_size=int(grid_size), margin=margin,
                       max_iter=int(max_iter), tol=tol)
     else:
@@ -606,7 +606,7 @@ if __name__ == "__main__":
         return Scenario(sensors=sensors, sources=sources, velocity=v_true,
                         sigma=sigma, drop_p=drop_p, fs=fs,
                         seed=seed + 2, repeats=repeats,
-                        model=model, head_velocity=head_v,
+                        model=model, v2=head_v,
                         box=(refr_b if model == "refraction" else None),
                         interface=iface_k)
 
@@ -697,10 +697,10 @@ if __name__ == "__main__":
                               format_func=METRIC_LABELS.get)
         if target.startswith("定位器"):
             if is_rp:
-                param_opts = ["velocity", "head_velocity", "grid_size",
+                param_opts = ["velocity", "velocity2", "grid_size",
                               "margin", "max_iter", "tol"]
                 raw_defaults = {"velocity": "3000, 5300, 5605, 7000",
-                                "head_velocity": "4000, 4800, 5605, 6500",
+                                "velocity2": "4000, 4800, 5605, 6500",
                                 "grid_size": "1, 2, 4, 8, 16",
                                 "margin": "0.0, 0.05, 0.1, 0.2",
                                 "max_iter": "5, 10, 20, 60, 150",
