@@ -406,14 +406,14 @@ if __name__ == "__main__":
                 st.caption(f"格数 ≈ {'×'.join(map(str, counts))} = "
                            f"{int(np.prod(counts))} 个震源（格心布源，不含边界）")
             grid_d_in = (dx_in, dy_in, dz_in)
-        repeats = st.slider("震源重复次数", 1, 20, 3)
+        repeats = st.slider("震源重复次数", 1, 20, 1)
         seed = st.number_input("随机种子", 0, 1_000_000, key="seed")
         st.subheader("到时误差模拟")
         fs_unit = st.selectbox("采样率单位", ["MHz", "kHz"])
         f_fs = 1e6 if fs_unit == "MHz" else 1e3
         fs_min, fs_max, fs_step = ((0.0, 200.0, 1.0) if fs_unit == "MHz"
                                    else (0.0, 200_000.0, 100.0))
-        _auto_default("fs_in", 10e6 / f_fs)                    # 基准 10 MHz
+        _auto_default("fs_in", 0.0)                       # 默认不量化
         fs_in = st.number_input("采样率", fs_min, fs_max, key="fs_in",
                                 step=fs_step,
                                 on_change=lambda: _unset_auto("fs_in"),
@@ -422,12 +422,12 @@ if __name__ == "__main__":
         fs_hz = fs_in * f_fs
         err_unit = st.selectbox("误差单位", ["µs", "ms"])
         f_err = 1e-6 if err_unit == "µs" else 1e-3
-        _auto_default("sigma_in", 1e-6 / f_err)                # 基准 1 µs
+        _auto_default("sigma_in", 0.0)                     # 默认无噪声
         sigma_in = st.slider("到时误差 σ", 0.0, 6e-6 / f_err, key="sigma_in",
                              step=0.1e-6 / f_err,
                              on_change=lambda: _unset_auto("sigma_in"))
         sigma_s = sigma_in * f_err
-        drop_p = st.slider("丢道概率", 0.0, 0.5, 0.1, 0.01,
+        drop_p = st.slider("丢道概率", 0.0, 0.5, 0.0, 0.01,
                            help="每个事件对每个通道独立抽一个 [0,1) 均匀随机数，"
                                 "小于该值则此通道在此事件中被丢弃")
         v_true = st.number_input(
@@ -477,7 +477,7 @@ if __name__ == "__main__":
             v_used = st.number_input("采用波速 (m/s)", 100.0, 10000.0,
                                      key="g_v", step=100.0,
                                      on_change=lambda: _unset_auto("g_v"))
-            grid_size = st.slider("初值点个数（grid size）", 4, 64, 4,
+            grid_size = st.slider("初值点个数（grid size）", 1, 64, 4,
                                   help="初值网格每条轴的格点【数】，等分取点且含"
                                        "边界")
             st.caption(f"初值点 = {'×'.join([str(grid_size)] * (3 if is_3d else 2))}"
