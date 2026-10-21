@@ -156,72 +156,76 @@ if __name__ == "__main__":
 
         s_min, s_max, s_step = ((10.0, 2000.0, 10.0) if sz_unit == "mm"
                                 else (0.01, 2.0, 0.01))
-        # 压头-岩石：压头与岩石六面接触，接触面尺寸 = 岩石截面，故只需压头
-        # 沿面法向的长度（默认 0.2×最短岩石边，随尺寸联动，改后脱钩）
-        head_len_in = None
-        if is_comp and geom_comp == "压头-岩石":
-            _auto_default("head_len_in", 0.1 / u_sz)           # 基准 100 mm
-            head_len_in = st.number_input(
-                "压头长度", s_min, s_max, key="head_len_in", step=s_step,
-                on_change=lambda: _unset_auto("head_len_in"),
-                help="每个压头沿自身面法向的厚度；压头与岩石六个面完全接触"
-                     "（接触面尺寸 = 岩石截面），传感器布在压头外表面上")
-        if is_cyl:
-            _auto_default("cyl_d", 0.05 / u_sz)                # 基准 50 mm
-            d_in = st.number_input("试样直径", s_min, s_max, key="cyl_d",
-                                   step=s_step,
-                                   on_change=lambda: _unset_auto("cyl_d"))
-            _auto_default("cyl_h", 0.1 / u_sz)                 # 基准 100 mm
-            h_in = st.number_input("试样高", s_min, s_max, key="cyl_h",
-                                   step=s_step,
-                                   on_change=lambda: _unset_auto("cyl_h"))
-            lx_in = ly_in = lz_in = d_in            # 占位：下游用 cyl 域
-        else:
-            _auto_default("size_x", 0.1 / u_sz)                    # 基准 100 mm
-            lx_in = st.number_input("试样尺寸 x", s_min, s_max, key="size_x",
-                                    step=s_step, on_change=lambda: _unset_auto("size_x"))
-            _auto_default("size_y", 0.1 / u_sz)
-            ly_in = st.number_input("试样尺寸 y", s_min, s_max, key="size_y",
-                                    step=s_step, on_change=lambda: _unset_auto("size_y"))
-            _auto_default("size_z", (0.1 if (is_comp and geom_comp == "压头-岩石")
-                                     else 0.2) / u_sz)   # 基准 200 mm / 压头-岩石 100 mm
-            lz_in = (st.number_input("试样尺寸 z", s_min, s_max, key="size_z",
-                                     step=s_step,
-                                     on_change=lambda: _unset_auto("size_z"))
-                     if is_3d else 0.0)
-        # 圆柱：轴线过原点沿 z，z∈[0, 高]；长方体：[0, 尺寸]
-        if is_cyl:
-            cyl = (d_in * u_sz, h_in * u_sz)                   # (直径, 高) 米
-            lx, ly, lz = cyl[0], cyl[0], cyl[1]                # 包围盒
-        else:
-            cyl = None
-            lx, ly, lz = lx_in * u_sz, ly_in * u_sz, lz_in * u_sz     # -> m
-        # 介质 1 边界（米）：整试样盒（组合体的界面初值域/搜索域框架）
-        refr_box = ((0.0, 0.0, 0.0), (lx, ly, lz))
-        iface = None
-        if is_comp and geom_comp == "岩石-岩石":
-            phi_i = st.slider(
-                "界面法向方位角（°）", 0, 359, 0, 5,
-                help="法向水平投影的方向：0=+x，90=+y，180=−x，270=−y")
-            psi_i = st.slider(
-                "界面法向倾角（°）", -90, 90, 90, 1,
-                help="法向自水平面抬起的角度（正 = 朝 +z 抬）；0°=竖直界面，"
-                     "±90°=水平界面（法向 ±z，此时方位角不起作用）。法向"
-                     "所指一侧为介质 1（波速 v1）")
-            off_max = 0.45 * min(lx_in, ly_in, lz_in)   # 任意取向都确保切过试样
-            o_step = 0.5 if sz_unit == "mm" else 0.0005
-            # 不用 _auto_default：默认是常数 0，无需随尺寸/单位联动；且
-            # 该机制要求 on_change 解钩，漏配会把用户拖动的值在每次重跑
-            # 时重置回默认（"界面偏移无效总回 0"的根源）。无 key 时控件
-            # 标识随标签（含单位）/量程变化，改尺寸或切单位自动回 0，
-            # 恰好避免旧值带错量纲
-            off_i = st.slider(
-                f"界面偏移 ({sz_unit})", -off_max, off_max, 0.0,
-                step=o_step,
-                help="界面沿法向离开试样中心的距离；正 = 朝法向所指一侧"
-                     "（介质 1 / v1 一侧）平移。范围为 ±0.45×最短边，保证"
-                     "界面始终切过试样") * u_sz
-            iface = interface_plane((lx, ly, lz), phi_i, psi_i, off_i)
+        # 尺寸/界面参数容器：两种几何模式下恒存在，容器内部控件增删只
+        # 影响容器内的路径，其下所有控件（传感器/震源/定位器等）路径恒定
+        # ——切换几何时前端原地更新，不产生残影
+        with st.container():
+            # 压头-岩石：压头与岩石六面接触，接触面尺寸 = 岩石截面，故只需
+            # 压头沿面法向的长度（默认 0.2×最短岩石边，随尺寸联动，改后脱钩）
+            head_len_in = None
+            if is_comp and geom_comp == "压头-岩石":
+                _auto_default("head_len_in", 0.1 / u_sz)       # 基准 100 mm
+                head_len_in = st.number_input(
+                    "压头长度", s_min, s_max, key="head_len_in", step=s_step,
+                    on_change=lambda: _unset_auto("head_len_in"),
+                    help="每个压头沿自身面法向的厚度；压头与岩石六个面完全"
+                         "接触（接触面尺寸 = 岩石截面），传感器布在压头外表面上")
+            if is_cyl:
+                _auto_default("cyl_d", 0.05 / u_sz)            # 基准 50 mm
+                d_in = st.number_input("试样直径", s_min, s_max, key="cyl_d",
+                                       step=s_step,
+                                       on_change=lambda: _unset_auto("cyl_d"))
+                _auto_default("cyl_h", 0.1 / u_sz)             # 基准 100 mm
+                h_in = st.number_input("试样高", s_min, s_max, key="cyl_h",
+                                       step=s_step,
+                                       on_change=lambda: _unset_auto("cyl_h"))
+                lx_in = ly_in = lz_in = d_in        # 占位：下游用 cyl 域
+            else:
+                _auto_default("size_x", 0.1 / u_sz)                # 基准 100 mm
+                lx_in = st.number_input("试样尺寸 x", s_min, s_max, key="size_x",
+                                        step=s_step, on_change=lambda: _unset_auto("size_x"))
+                _auto_default("size_y", 0.1 / u_sz)
+                ly_in = st.number_input("试样尺寸 y", s_min, s_max, key="size_y",
+                                        step=s_step, on_change=lambda: _unset_auto("size_y"))
+                _auto_default("size_z", (0.1 if (is_comp and geom_comp == "压头-岩石")
+                                         else 0.2) / u_sz)  # 基准 200 mm / 压头-岩石 100 mm
+                lz_in = (st.number_input("试样尺寸 z", s_min, s_max, key="size_z",
+                                         step=s_step,
+                                         on_change=lambda: _unset_auto("size_z"))
+                         if is_3d else 0.0)
+            # 圆柱：轴线过原点沿 z，z∈[0, 高]；长方体：[0, 尺寸]
+            if is_cyl:
+                cyl = (d_in * u_sz, h_in * u_sz)               # (直径, 高) 米
+                lx, ly, lz = cyl[0], cyl[0], cyl[1]            # 包围盒
+            else:
+                cyl = None
+                lx, ly, lz = lx_in * u_sz, ly_in * u_sz, lz_in * u_sz     # -> m
+            # 介质 1 边界（米）：整试样盒（组合体的界面初值域/搜索域框架）
+            refr_box = ((0.0, 0.0, 0.0), (lx, ly, lz))
+            iface = None
+            if is_comp and geom_comp == "岩石-岩石":
+                phi_i = st.slider(
+                    "界面法向方位角（°）", 0, 359, 0, 5,
+                    help="法向水平投影的方向：0=+x，90=+y，180=−x，270=−y")
+                psi_i = st.slider(
+                    "界面法向倾角（°）", -90, 90, 90, 1,
+                    help="法向自水平面抬起的角度（正 = 朝 +z 抬）；0°=竖直界面，"
+                         "±90°=水平界面（法向 ±z，此时方位角不起作用）。法向"
+                         "所指一侧为介质 1（波速 v1）")
+                off_max = 0.45 * min(lx_in, ly_in, lz_in)  # 任意取向都确保切过试样
+                o_step = 0.5 if sz_unit == "mm" else 0.0005
+                # 不用 _auto_default：默认是常数 0，无需随尺寸/单位联动；且
+                # 该机制要求 on_change 解钩，漏配会把用户拖动的值在每次重跑
+                # 时重置回默认（"界面偏移无效总回 0"的根源）。无 key 时控件
+                # 标识随标签（含单位）/量程变化，改尺寸或切单位自动回 0，
+                # 恰好避免旧值带错量纲
+                off_i = st.slider(
+                    f"界面偏移 ({sz_unit})", -off_max, off_max, 0.0,
+                    step=o_step,
+                    help="界面沿法向离开试样中心的距离；正 = 朝法向所指一侧"
+                         "（介质 1 / v1 一侧）平移。范围为 ±0.45×最短边，保证"
+                         "界面始终切过试样") * u_sz
+                iface = interface_plane((lx, ly, lz), phi_i, psi_i, off_i)
         # 定位算法单选框在侧栏更下方才创建，但用户改动后 session_state
         # 在本次重跑一开始就已更新——提前读它，布置选项就能跟随方法联动
         is_rp_now = str(st.session_state.get("loc_method", "Geiger")
@@ -234,107 +238,109 @@ if __name__ == "__main__":
                                                 "随机": "random",
                                                 "自定义": "custom",
                                                 "压头": "head"}[place_label]
-        n_wanted = st.slider("传感器数", 4, 32, 8) if place_label == "随机" else 0
+        # 传感器布置子块容器：恒存在，内部随布置方式增删不影响下方路径
+        with st.container():
+            n_wanted = st.slider("传感器数", 4, 32, 8) if place_label == "随机" else 0
 
-        def _fmt_layout(m_pts):
-            """米制坐标 -> 文本（按显示单位换算，整数值不带小数点）。"""
-            lines = []
-            for p in m_pts:
-                cells = []
-                for v in p:
-                    d = v * factor
-                    cells.append(str(int(round(d))) if abs(d - round(d)) < 1e-9
-                                 else f"{d:.6g}")
-                lines.append(",".join(cells))
-            return "\n".join(lines)
+            def _fmt_layout(m_pts):
+                """米制坐标 -> 文本（按显示单位换算，整数值不带小数点）。"""
+                lines = []
+                for p in m_pts:
+                    cells = []
+                    for v in p:
+                        d = v * factor
+                        cells.append(str(int(round(d))) if abs(d - round(d)) < 1e-9
+                                     else f"{d:.6g}")
+                    lines.append(",".join(cells))
+                return "\n".join(lines)
 
-        if place_label == "几何特征":
-            if is_cyl:
-                # 圆柱：几何特征只有象限点一种
-                n_layers = st.number_input(
-                    "象限点层数", 1, 8, 2,
-                    help="圆柱侧面四个象限方位（+x/+y/−x/−y）各 1 个传感器"
-                         "为一层：1 层 = 半高单层；2 层及以上沿试样高均分"
-                         "且含底、顶两端面，共 4n 个")
+            if place_label == "几何特征":
+                if is_cyl:
+                    # 圆柱：几何特征只有象限点一种
+                    n_layers = st.number_input(
+                        "象限点层数", 1, 8, 2,
+                        help="圆柱侧面四个象限方位（+x/+y/−x/−y）各 1 个传感器"
+                             "为一层：1 层 = 半高单层；2 层及以上沿试样高均分"
+                             "且含底、顶两端面，共 4n 个")
+                    seed_gen = st.session_state.get("seed", 0)
+                    st.session_state["layout_text"] = _fmt_layout(
+                        quadrant_layout(lx, lz, n_layers=int(n_layers),
+                                        seed=seed_gen).values())
+                    st.caption(f"象限点 = 圆柱侧面四个象限方位（±x/±y）× "
+                               f"{int(n_layers)} 层，共 {4 * int(n_layers)} 个，"
+                               f"轴线沿 z 过原点")
+                else:
+                    n_edges = 4 if is_3d else 2               # 每个边特征覆盖的边数
+                    edge_names = ["横边", "纵边", "垂边"][: 3 if is_3d else 2]
+                    face_names = ["侧面", "正面", "顶面"] if is_3d else []
+                    ecols = st.columns(len(edge_names))          # 边一行
+                    on = {f: ecols[i].checkbox(f, value=False)
+                          for i, f in enumerate(edge_names)}
+                    if face_names:
+                        fcols = st.columns(len(face_names))      # 面一行
+                        for i, f in enumerate(face_names):
+                            on[f] = fcols[i].checkbox(f, value=False)
+                    on["顶点"] = st.checkbox("顶点", value=True)
+                    edge_n = {}
+                    for f in ("横边", "纵边", "垂边"):
+                        if on.get(f):
+                            edge_n[f] = st.number_input(
+                                f"{f}等分点数（每条边）", 1, 32, 4,
+                                help=f"与{f[0]}轴平行的边共 {n_edges} 条，每条边"
+                                     " n+1 等分取 n 个内部等分点（不含端点角点）")
+                    faces = [f for f in on if on[f] and f not in edge_n
+                             and f != "顶点"]
+                    st.session_state["layout_text"] = _fmt_layout(
+                        feature_layout((lx, ly, lz) if is_3d else (lx, ly),
+                                       edges=edge_n, faces=faces,
+                                       vertices=on.get("顶点", False)).values())
+                    st.caption(f"横边/纵边/垂边 = 与 x/y/z 平行的全部"
+                               f"{'4' if is_3d else '2'}条边；侧面/正面/顶面 = "
+                               f"以 x/y/z 为法向的两个面（各取面心）；顶点 = "
+                               f"全部{'8' if is_3d else '4'}个角点")
+            elif place_label == "随机":
+                ext_mm = ((int(round(lx * 1e3)), int(round(ly * 1e3)),
+                           int(round(lz * 1e3))) if is_3d else
+                          (int(round(lx * 1e3)), int(round(ly * 1e3))))
+                # 随机种子控件在侧栏更下方：先读 session_state（首跑用默认 0）
+                seed_gen = st.session_state.get("seed", 0)
+                rand = random_int_layout(n_wanted, extent=ext_mm, seed=seed_gen)
+                st.session_state["layout_text"] = _fmt_layout(
+                    tuple(v * 1e-3 for v in p) for p in rand.values())
+            elif place_label == "压头":
+                n_per_face = st.number_input("每个压头（面）传感器数", 1, 8, 2,
+                                             help="试样盒六个面外各布 n 个传感器"
+                                                  "（面内随机位置），共 6n 个")
+                if is_comp and geom_comp == "压头-岩石":
+                    head_off_in = head_len_in   # 压头与岩石六面接触：外距=压头长度
+                    off_note = f"压头-岩石几何：传感器布在压头外表面（距岩石面 = 压头长度 {head_len_in:g} {sz_unit}）"
+                else:
+                    o_min, o_max, o_step = ((0.5, 100.0, 0.5) if sz_unit == "mm"
+                                            else (0.0005, 0.1, 0.0005))
+                    _auto_default("head_off_in", round(0.2 * min(lx_in, ly_in,
+                                                                 lz_in), 9))
+                    head_off_in = st.number_input(
+                        "压头外距", o_min, o_max, key="head_off_in", step=o_step,
+                        on_change=lambda: _unset_auto("head_off_in"),
+                        help=f"传感器离试样面的垂直距离（当前单位 {sz_unit}）；"
+                             "默认 0.2×最短边。偏距越大（论文 5–50 mm 不等），压头"
+                             "段走时差异越大，v₁ 反演越可分辨；全部传感器小偏距"
+                             "且速度对比度大时，v₁-位置权衡会病态（折射法误差与"
+                             "Geiger 相当甚至更差）")
+                    off_note = f"压头外距 {head_off_in:g} {sz_unit}"
+                # 随机种子控件在侧栏更下方：先读 session_state（首跑用默认 0）
                 seed_gen = st.session_state.get("seed", 0)
                 st.session_state["layout_text"] = _fmt_layout(
-                    quadrant_layout(lx, lz, n_layers=int(n_layers),
-                                    seed=seed_gen).values())
-                st.caption(f"象限点 = 圆柱侧面四个象限方位（±x/±y）× "
-                           f"{int(n_layers)} 层，共 {4 * int(n_layers)} 个，"
-                           f"轴线沿 z 过原点")
-            else:
-                n_edges = 4 if is_3d else 2               # 每个边特征覆盖的边数
-                edge_names = ["横边", "纵边", "垂边"][: 3 if is_3d else 2]
-                face_names = ["侧面", "正面", "顶面"] if is_3d else []
-                ecols = st.columns(len(edge_names))          # 边一行
-                on = {f: ecols[i].checkbox(f, value=False)
-                      for i, f in enumerate(edge_names)}
-                if face_names:
-                    fcols = st.columns(len(face_names))      # 面一行
-                    for i, f in enumerate(face_names):
-                        on[f] = fcols[i].checkbox(f, value=False)
-                on["顶点"] = st.checkbox("顶点", value=True)
-                edge_n = {}
-                for f in ("横边", "纵边", "垂边"):
-                    if on.get(f):
-                        edge_n[f] = st.number_input(
-                            f"{f}等分点数（每条边）", 1, 32, 4,
-                            help=f"与{f[0]}轴平行的边共 {n_edges} 条，每条边"
-                                 " n+1 等分取 n 个内部等分点（不含端点角点）")
-                faces = [f for f in on if on[f] and f not in edge_n
-                         and f != "顶点"]
+                    head_layout((lx, ly, lz), per_face=int(n_per_face),
+                                offset=head_off_in * u_sz, seed=seed_gen).values())
+                st.caption(f"压头布置 = 六个面（±x/±y/±z）各 {int(n_per_face)} 个"
+                           f"传感器，共 {6 * int(n_per_face)} 个，全部在试样盒外"
+                           f"（{off_note}）")
+            elif "layout_text" not in st.session_state:
+                ex = ([(0, 0, 0), (100, 0, 0), (0, 100, 0), (100, 100, 0), (50, 50, 100)]
+                      if is_3d else [(0, 0), (100, 0), (0, 100), (100, 100)])
                 st.session_state["layout_text"] = _fmt_layout(
-                    feature_layout((lx, ly, lz) if is_3d else (lx, ly),
-                                   edges=edge_n, faces=faces,
-                                   vertices=on.get("顶点", False)).values())
-                st.caption(f"横边/纵边/垂边 = 与 x/y/z 平行的全部"
-                           f"{'4' if is_3d else '2'}条边；侧面/正面/顶面 = "
-                           f"以 x/y/z 为法向的两个面（各取面心）；顶点 = "
-                           f"全部{'8' if is_3d else '4'}个角点")
-        elif place_label == "随机":
-            ext_mm = ((int(round(lx * 1e3)), int(round(ly * 1e3)),
-                       int(round(lz * 1e3))) if is_3d else
-                      (int(round(lx * 1e3)), int(round(ly * 1e3))))
-            # 随机种子控件在侧栏更下方：先读 session_state（首跑用默认 0）
-            seed_gen = st.session_state.get("seed", 0)
-            rand = random_int_layout(n_wanted, extent=ext_mm, seed=seed_gen)
-            st.session_state["layout_text"] = _fmt_layout(
-                tuple(v * 1e-3 for v in p) for p in rand.values())
-        elif place_label == "压头":
-            n_per_face = st.number_input("每个压头（面）传感器数", 1, 8, 2,
-                                         help="试样盒六个面外各布 n 个传感器"
-                                              "（面内随机位置），共 6n 个")
-            if is_comp and geom_comp == "压头-岩石":
-                head_off_in = head_len_in   # 压头与岩石六面接触：外距=压头长度
-                off_note = f"压头-岩石几何：传感器布在压头外表面（距岩石面 = 压头长度 {head_len_in:g} {sz_unit}）"
-            else:
-                o_min, o_max, o_step = ((0.5, 100.0, 0.5) if sz_unit == "mm"
-                                        else (0.0005, 0.1, 0.0005))
-                _auto_default("head_off_in", round(0.2 * min(lx_in, ly_in,
-                                                             lz_in), 9))
-                head_off_in = st.number_input(
-                    "压头外距", o_min, o_max, key="head_off_in", step=o_step,
-                    on_change=lambda: _unset_auto("head_off_in"),
-                    help=f"传感器离试样面的垂直距离（当前单位 {sz_unit}）；"
-                         "默认 0.2×最短边。偏距越大（论文 5–50 mm 不等），压头"
-                         "段走时差异越大，v₁ 反演越可分辨；全部传感器小偏距"
-                         "且速度对比度大时，v₁-位置权衡会病态（折射法误差与"
-                         "Geiger 相当甚至更差）")
-                off_note = f"压头外距 {head_off_in:g} {sz_unit}"
-            # 随机种子控件在侧栏更下方：先读 session_state（首跑用默认 0）
-            seed_gen = st.session_state.get("seed", 0)
-            st.session_state["layout_text"] = _fmt_layout(
-                head_layout((lx, ly, lz), per_face=int(n_per_face),
-                            offset=head_off_in * u_sz, seed=seed_gen).values())
-            st.caption(f"压头布置 = 六个面（±x/±y/±z）各 {int(n_per_face)} 个"
-                       f"传感器，共 {6 * int(n_per_face)} 个，全部在试样盒外"
-                       f"（{off_note}）")
-        elif "layout_text" not in st.session_state:
-            ex = ([(0, 0, 0), (100, 0, 0), (0, 100, 0), (100, 100, 0), (50, 50, 100)]
-                  if is_3d else [(0, 0), (100, 0), (0, 100), (100, 100)])
-            st.session_state["layout_text"] = _fmt_layout(
-                tuple(v * 1e-3 for v in p) for p in ex)
+                    tuple(v * 1e-3 for v in p) for p in ex)
 
         custom_txt = st.text_area(
             "传感器坐标（每行一个，逗号分隔）", key="layout_text", height=140,
@@ -390,37 +396,39 @@ if __name__ == "__main__":
                 st.warning(f"折射{'正演' if is_refr else '定位器'}注意："
                            f"{heads_problem}")
         source_mode = st.radio("震源布置", ["随机震源", "网格震源"], index=1)
-        if source_mode == "随机震源":
-            n_sources = st.slider("震源数", 1, 50, 10)
-            grid_d_in = (0.0, 0.0, 0.0)
-        else:
-            d_min, d_max, d_step = ((0.5, 2000.0, 1.0) if sz_unit == "mm"
-                                    else (0.0005, 2.0, 0.001))
-
-            def _spacing(label, size_in, key):
-                # 默认 = 尺寸/5（当前单位）；联动规则同尺寸输入
-                _auto_default(key, round(size_in / 5.0, 9))
-                return st.number_input(label, d_min, d_max, key=key, step=d_step,
-                                       on_change=lambda k=key: _unset_auto(k))
-
-            dx_in = _spacing("网格间距 x", lx_in, "grid_dx")
-            dy_in = _spacing("网格间距 y", ly_in, "grid_dy")
-            dz_in = (_spacing("网格间距 z", lz_in, "grid_dz") if is_3d else 0.0)
-            n_sources = 0
-            if is_cyl:
-                # 圆柱：包围盒格心过滤到圆盘内，格数取实际保留数
-                n_cyl = len(cylinder_grid(
-                    lx, lz, (dx_in * u_sz, dy_in * u_sz, dz_in * u_sz)))
-                st.caption(f"圆柱内格心布源（包围盒格心过滤到圆盘内）："
-                           f"{n_cyl} 个震源")
+        # 震源布置子块容器：恒存在，随机/网格两种方式控件数不同也不影响下方
+        with st.container():
+            if source_mode == "随机震源":
+                n_sources = st.slider("震源数", 1, 50, 10)
+                grid_d_in = (0.0, 0.0, 0.0)
             else:
-                spans = (lx, ly, lz) if is_3d else (lx, ly)
-                d_ins = (dx_in, dy_in, dz_in) if is_3d else (dx_in, dy_in)
-                counts = [max(1, int(round(s / (d * u_sz))))
-                          for s, d in zip(spans, d_ins)]
-                st.caption(f"格数 ≈ {'×'.join(map(str, counts))} = "
-                           f"{int(np.prod(counts))} 个震源（格心布源，不含边界）")
-            grid_d_in = (dx_in, dy_in, dz_in)
+                d_min, d_max, d_step = ((0.5, 2000.0, 1.0) if sz_unit == "mm"
+                                        else (0.0005, 2.0, 0.001))
+
+                def _spacing(label, size_in, key):
+                    # 默认 = 尺寸/5（当前单位）；联动规则同尺寸输入
+                    _auto_default(key, round(size_in / 5.0, 9))
+                    return st.number_input(label, d_min, d_max, key=key, step=d_step,
+                                           on_change=lambda k=key: _unset_auto(k))
+
+                dx_in = _spacing("网格间距 x", lx_in, "grid_dx")
+                dy_in = _spacing("网格间距 y", ly_in, "grid_dy")
+                dz_in = (_spacing("网格间距 z", lz_in, "grid_dz") if is_3d else 0.0)
+                n_sources = 0
+                if is_cyl:
+                    # 圆柱：包围盒格心过滤到圆盘内，格数取实际保留数
+                    n_cyl = len(cylinder_grid(
+                        lx, lz, (dx_in * u_sz, dy_in * u_sz, dz_in * u_sz)))
+                    st.caption(f"圆柱内格心布源（包围盒格心过滤到圆盘内）："
+                               f"{n_cyl} 个震源")
+                else:
+                    spans = (lx, ly, lz) if is_3d else (lx, ly)
+                    d_ins = (dx_in, dy_in, dz_in) if is_3d else (dx_in, dy_in)
+                    counts = [max(1, int(round(s / (d * u_sz))))
+                              for s, d in zip(spans, d_ins)]
+                    st.caption(f"格数 ≈ {'×'.join(map(str, counts))} = "
+                               f"{int(np.prod(counts))} 个震源（格心布源，不含边界）")
+                grid_d_in = (dx_in, dy_in, dz_in)
         repeats = st.slider("震源重复次数", 1, 20, 1)
         seed = st.number_input("随机种子", 0, 1_000_000, key="seed")
         st.subheader("到时误差模拟")
@@ -447,77 +455,82 @@ if __name__ == "__main__":
                                 "小于该值则此通道在此事件中被丢弃")
         v_true = st.number_input(
 "真实波速 (m/s)", 100.0, 10000.0, 5300.0, 100.0)
-        if is_refr:
-            v2_true = st.number_input(
-                "波速 v2 (m/s)", 100.0, 10000.0, 5605.0, 100.0)
+        # v2 输入容器：恒存在（均质时不渲染内部控件），不影响下方路径
+        with st.container():
+            v2_true = 0.0
+            if is_refr:
+                v2_true = st.number_input(
+                    "波速 v2 (m/s)", 100.0, 10000.0, 5605.0, 100.0)
 
         st.header("定位器")
         method_label = st.radio(
             "定位算法", ["Geiger", "折射路径 (locRP)"], key="loc_method")
         is_rp = method_label.startswith("折射")
-        if is_rp:
-            # 定位器波速默认 = 真值（v₁ 初值跟真实波速、v₂ 跟场景 v₂），
-            # 随真值联动；手动改过后脱钩
-            _auto_default("rp_v1", v_true)
-            v_used = st.number_input(
-                "波速 v1 (m/s)", 100.0, 10000.0, key="rp_v1",
-                step=100.0, on_change=lambda: _unset_auto("rp_v1"))
-            _auto_default("rp_v2", v2_true if is_refr else v_true)
-            v2_used = st.number_input(
-                "波速 v2 (m/s)", 100.0, 10000.0, key="rp_v2",
-                step=100.0, on_change=lambda: _unset_auto("rp_v2"))
-            grid_size = st.slider(
-                "初值点个数（grid size）", 1, 64, 4,
-                help="初值网格每条轴的格点【数】，在试样盒内等分取点且含"
-                     "边界；1 = 只用试样中心")
-            st.caption(f"初值点 = {'×'.join([str(grid_size)] * 3)}"
-                       f" = {grid_size ** 3} 个候选点（试样盒内三维网格搜索）")
-            margin = st.slider(
-                "外延比例（margin）", 0.0, 0.5, 0.0, 0.01,
-                help="扩大初值搜索区域，外延尺寸=外延比例*试样尺寸")
-            max_iter = st.number_input("迭代上限（max_iter）", 5, 500, 60, 5)
-            tol = st.number_input(
-                "收敛判据 tol (m)", 0.0, 1e-3, 1e-5, step=1e-7,
-                format="%.1e",
-                help="Σ|Δx|+|Δy|+|Δz| < tol 即收敛")
-            inv_c1, inv_c2 = st.columns(2)
-            if is_comp and geom_comp == "岩石-岩石":
-                # 平面模式：两个波速都可反演（二元列表）
-                inv1 = inv_c1.checkbox("反演波速 v1", False, key="est_v1")
-                inv2 = inv_c2.checkbox("反演波速 v2", False, key="est_v2")
-                estimate_velocity = [inv1, inv2]
+        # 定位器参数容器：恒存在。岩石-岩石/压头-岩石下折射参数序列完全
+        # 相同 -> 原地更新；Geiger<->折射切换的重构也被限制在容器内部
+        with st.container():
+            if is_rp:
+                # 定位器波速默认 = 真值（v₁ 初值跟真实波速、v₂ 跟场景 v₂），
+                # 随真值联动；手动改过后脱钩
+                _auto_default("rp_v1", v_true)
+                v_used = st.number_input(
+                    "波速 v1 (m/s)", 100.0, 10000.0, key="rp_v1",
+                    step=100.0, on_change=lambda: _unset_auto("rp_v1"))
+                _auto_default("rp_v2", v2_true if is_refr else v_true)
+                v2_used = st.number_input(
+                    "波速 v2 (m/s)", 100.0, 10000.0, key="rp_v2",
+                    step=100.0, on_change=lambda: _unset_auto("rp_v2"))
+                grid_size = st.slider(
+                    "初值点个数（grid size）", 1, 64, 4,
+                    help="初值网格每条轴的格点【数】，在试样盒内等分取点且含"
+                         "边界；1 = 只用试样中心")
+                st.caption(f"初值点 = {'×'.join([str(grid_size)] * 3)}"
+                           f" = {grid_size ** 3} 个候选点（试样盒内三维网格搜索）")
+                margin = st.slider(
+                    "外延比例（margin）", 0.0, 0.5, 0.0, 0.01,
+                    help="扩大初值搜索区域，外延尺寸=外延比例*试样尺寸")
+                max_iter = st.number_input("迭代上限（max_iter）", 5, 500, 60, 5)
+                tol = st.number_input(
+                    "收敛判据 tol (m)", 0.0, 1e-3, 1e-5, step=1e-7,
+                    format="%.1e",
+                    help="Σ|Δx|+|Δy|+|Δz| < tol 即收敛")
+                inv_c1, inv_c2 = st.columns(2)
+                if is_comp and geom_comp == "岩石-岩石":
+                    # 平面模式：两个波速都可反演（二元列表）
+                    inv1 = inv_c1.checkbox("反演波速 v1", False, key="est_v1")
+                    inv2 = inv_c2.checkbox("反演波速 v2", False, key="est_v2")
+                    estimate_velocity = [inv1, inv2]
+                else:
+                    # 盒面模式：v2 恒为已知（禁用其复选框，保持控件结构不变，
+                    # 避免前端在布局切换时留下僵尸元素）
+                    inv1 = inv_c1.checkbox("反演波速 v1", True, key="est_v1")
+                    inv2 = inv_c2.checkbox("反演波速 v2", False, key="est_v2",
+                                           disabled=True)
+                    estimate_velocity = inv1
             else:
-                # 盒面模式：v2 恒为已知（禁用其复选框，保持控件结构不变，
-                # 避免前端在布局切换时留下僵尸元素）
-                inv1 = inv_c1.checkbox("反演波速 v1", True, key="est_v1")
-                inv2 = inv_c2.checkbox("反演波速 v2", False, key="est_v2",
-                                       disabled=True)
-                estimate_velocity = inv1
-        else:
-            _auto_default("g_v", v_true)               # 采用波速默认 = 真值
-            v_used = st.number_input("采用波速 (m/s)", 100.0, 10000.0,
-                                     key="g_v", step=100.0,
-                                     on_change=lambda: _unset_auto("g_v"))
-            grid_size = st.slider("初值点个数（grid size）", 1, 64, 4,
-                                  help="初值网格每条轴的格点【数】，等分取点且含"
-                                       "边界")
-            st.caption(f"初值点 = {'×'.join([str(grid_size)] * (3 if is_3d else 2))}"
-                       f" = {grid_size ** (3 if is_3d else 2)} 个候选点"
-                       f"（{'三维' if is_3d else '二维'}网格搜索）")
-            margin = st.slider("外延比例（margin）", 0.0, 0.5, 0.0, 0.01,
-                               help="扩大初值搜索区域，外延尺寸=外延比例*试样尺寸")
-            max_iter = st.number_input("迭代上限（max_iter）", 5, 500, 60, 5)
-            # 默认 = 1/fs（一个采样周期，与 aelib v0.9.39 的默认语义一致）；
-            # 未手动改过 tol 时随采样率联动，改过即脱钩；fs=0 回退 1e-6
-            _auto_default("tol_in", 1.0 / fs_hz if fs_hz > 0 else 1e-6)
-            tol = st.number_input("收敛判据 tol (s)", 0.0, 1e-3, key="tol_in",
-                                  step=1e-7, format="%.1e",
-                                  on_change=lambda: _unset_auto("tol_in"),
-                                  help="加权残差 RMS 改善量 < tol 即收敛")
-        damping = st.checkbox("LM 阻尼", True) if not is_rp else True
-        if not is_rp:
-            est_v = st.checkbox("联合反演速度", False)
-            estimate_velocity = est_v
+                _auto_default("g_v", v_true)               # 采用波速默认 = 真值
+                v_used = st.number_input("采用波速 (m/s)", 100.0, 10000.0,
+                                         key="g_v", step=100.0,
+                                         on_change=lambda: _unset_auto("g_v"))
+                grid_size = st.slider("初值点个数（grid size）", 1, 64, 4,
+                                      help="初值网格每条轴的格点【数】，等分取点且含"
+                                           "边界")
+                st.caption(f"初值点 = {'×'.join([str(grid_size)] * (3 if is_3d else 2))}"
+                           f" = {grid_size ** (3 if is_3d else 2)} 个候选点"
+                           f"（{'三维' if is_3d else '二维'}网格搜索）")
+                margin = st.slider("外延比例（margin）", 0.0, 0.5, 0.0, 0.01,
+                                   help="扩大初值搜索区域，外延尺寸=外延比例*试样尺寸")
+                max_iter = st.number_input("迭代上限（max_iter）", 5, 500, 60, 5)
+                # 默认 = 1/fs（一个采样周期，与 aelib v0.9.39 的默认语义一致）；
+                # 未手动改过 tol 时随采样率联动，改过即脱钩；fs=0 回退 1e-6
+                _auto_default("tol_in", 1.0 / fs_hz if fs_hz > 0 else 1e-6)
+                tol = st.number_input("收敛判据 tol (s)", 0.0, 1e-3, key="tol_in",
+                                      step=1e-7, format="%.1e",
+                                      on_change=lambda: _unset_auto("tol_in"),
+                                      help="加权残差 RMS 改善量 < tol 即收敛")
+                damping = st.checkbox("LM 阻尼", True)
+                est_v = st.checkbox("联合反演速度", False)
+                estimate_velocity = est_v
 
     box3 = refr_box          # 介质 1 边界（米）：折射界面/折射初值域
     SCENARIO_KEY = ("scenario", kind, n_sensors, lx, ly, lz, custom_key,
