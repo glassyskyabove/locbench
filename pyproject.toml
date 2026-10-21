@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "locbench"
-version = "0.2.30"
+version = "0.2.31"
 description = "Locator testing / parameter tuning on purely synthetic data (bench layer over aelib)"
 requires-python = ">=3.9"
 dependencies = [

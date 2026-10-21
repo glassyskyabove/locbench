@@ -576,7 +576,7 @@ def test_dashboard_refraction_method_needs_two_media():
     assert not any("axes" in e or "sensor (" in e for e in errs)
     # 切到组合体正演：平面分界，同一布置直接可运行
     next(r for r in at.sidebar.radio
-         if "到时正演" in r.label).set_value("组合体（两介质）")
+         if "波速模型" in r.label).set_value("组合体（两介质）")
     at.run()
     assert not at.exception, [e.value for e in at.exception]
     assert not at.error
@@ -720,7 +720,7 @@ def test_dashboard_composite_flow():
     next(t for t in at.text_input
          if t.label.startswith("取值")).set_value("5300")
     next(r for r in at.sidebar.radio
-         if "到时正演" in r.label).set_value("组合体（两介质）")
+         if "波速模型" in r.label).set_value("组合体（两介质）")
     at.run()
     place = next(r for r in at.sidebar.radio if "传感器布置" in r.label)
     assert "组合体（两介质）" not in place.options      # 无专属布置
@@ -791,7 +791,7 @@ def test_dashboard_interface_offset_sticks():
     next(t for t in at.text_input
          if t.label.startswith("取值")).set_value("5300")
     next(r for r in at.sidebar.radio
-         if "到时正演" in r.label).set_value("组合体（两介质）")
+         if "波速模型" in r.label).set_value("组合体（两介质）")
     at.run()
     off = next(s for s in at.sidebar.slider if "界面偏移" in s.label)
     off.set_value(10.0)
